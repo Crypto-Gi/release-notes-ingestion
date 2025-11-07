@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # Main ingestion pipeline API
+  ingestion-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: release-notes-ingestion
+    restart: unless-stopped
+    ports:
+      - "8060:8060"
+    environment:
+      # R2 Configuration
+      - R2_ENDPOINT=${R2_ENDPOINT}
+      - R2_ACCESS_KEY=${R2_ACCESS_KEY}
+      - R2_SECRET_KEY=${R2_SECRET_KEY}
+      - R2_BUCKET_NAME=${R2_BUCKET_NAME}
+      - R2_SOURCE_PREFIX=${R2_SOURCE_PREFIX:-source/}
+      - R2_MARKDOWN_PREFIX=${R2_MARKDOWN_PREFIX:-markdown/}
+      
+      # Qdrant Configuration
+      - QDRANT_HOST=${QDRANT_HOST}
+      - QDRANT_PORT=${QDRANT_PORT:-6333}
+      - QDRANT_FILENAME_COLLECTION=${QDRANT_FILENAME_COLLECTION:-filename-granite-embedding30m}
+      - QDRANT_CONTENT_COLLECTION=${QDRANT_CONTENT_COLLECTION:-releasenotes-bge-m3}
+      
+      # Ollama Configuration
+      - OLLAMA_HOST=${OLLAMA_HOST}
+      - OLLAMA_PORT=${OLLAMA_PORT:-11434}
+      - OLLAMA_FILENAME_MODEL=${OLLAMA_FILENAME_MODEL:-granite-embedding:30m}
+      - OLLAMA_CONTENT_MODEL=${OLLAMA_CONTENT_MODEL:-bge-m3}
+      
+      # Docling Configuration
+      - DOCLING_BASE_URL=${DOCLING_BASE_URL}
+      - DOCLING_TIMEOUT=${DOCLING_TIMEOUT:-300}
+      - DOCLING_POLL_INTERVAL=${DOCLING_POLL_INTERVAL:-2}
+      
+      # Chunking Configuration
+      - CHUNK_SIZE_TOKENS=${CHUNK_SIZE_TOKENS:-500}
+      - CHUNK_OVERLAP_TOKENS=${CHUNK_OVERLAP_TOKENS:-0}
+      
+      # Logging Configuration
+      - LOG_DIR=${LOG_DIR:-logs/}
+      - CONVERSION_LOG=${CONVERSION_LOG:-conversion.json}
+      - UPLOAD_LOG=${UPLOAD_LOG:-upload.json}
+      - FAILED_LOG=${FAILED_LOG:-failed.json}
+    
+    volumes:
+      # Persist logs outside container
+      - ./logs:/app/logs
+      
+      # Optional: Mount .env file
+      - ./.env:/app/.env:ro
+    
+    networks:
+      - ingestion-network
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8060/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+
+networks:
+  ingestion-network:
+    driver: bridge
