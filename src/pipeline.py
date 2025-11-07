@@ -99,6 +99,26 @@ class IngestionPipeline:
             "qdrant": self.qdrant_uploader.health_check()
         }
     
+    def should_skip_file(self, file_key: str) -> bool:
+        """
+        Check if file should be skipped based on extension
+        
+        Args:
+            file_key: R2 object key
+            
+        Returns:
+            True if file should be skipped
+        """
+        if not self.config.processing.skip_extensions:
+            return False
+        
+        filename = Path(file_key).name
+        for ext in self.config.processing.skip_extensions:
+            if filename.endswith(ext):
+                logger.info(f"Skipping file (extension filter): {filename}")
+                return True
+        return False
+    
     def process_file(self, file_key: str) -> bool:
         """
         Process a single file through the entire pipeline
@@ -111,6 +131,10 @@ class IngestionPipeline:
         """
         filename = Path(file_key).name
         logger.info(f"Processing file: {file_key}")
+        
+        # Check if file should be skipped
+        if self.should_skip_file(file_key):
+            return True  # Return True to not count as failure
         
         try:
             # Step 1: Download file from R2

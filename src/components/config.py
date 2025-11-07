@@ -69,6 +69,14 @@ class LogConfig(BaseModel):
     failed_log: str = Field(default="failed.json", description="Failed files log filename")
 
 
+class ProcessingConfig(BaseModel):
+    """File processing configuration"""
+    skip_extensions: list[str] = Field(
+        default_factory=list,
+        description="List of file extensions to skip (e.g., ['.DS_Store', '.tmp'])"
+    )
+
+
 class PipelineConfig(BaseModel):
     """Complete pipeline configuration"""
     r2: R2Config
@@ -77,6 +85,7 @@ class PipelineConfig(BaseModel):
     docling: DoclingConfig
     chunking: ChunkingConfig
     log: LogConfig
+    processing: ProcessingConfig
 
 
 def load_config(env_file: Optional[str] = None) -> PipelineConfig:
@@ -167,13 +176,21 @@ def load_config(env_file: Optional[str] = None) -> PipelineConfig:
         failed_log=os.getenv("FAILED_LOG", "failed.json")
     )
     
+    # Processing Configuration
+    skip_extensions_str = os.getenv("SKIP_EXTENSIONS", "")
+    skip_extensions = [ext.strip() for ext in skip_extensions_str.split(",") if ext.strip()]
+    processing_config = ProcessingConfig(
+        skip_extensions=skip_extensions
+    )
+    
     return PipelineConfig(
         r2=r2_config,
         qdrant=qdrant_config,
         ollama=ollama_config,
         docling=docling_config,
         chunking=chunking_config,
-        log=log_config
+        log=log_config,
+        processing=processing_config
     )
 
 
