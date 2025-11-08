@@ -431,9 +431,25 @@ def main():
         return 0
     
     try:
-        # Connect to Qdrant
+        # Connect to Qdrant (support both dev and production)
         logger.info("Connecting to Qdrant...")
-        client = QdrantClient(host=args.host, port=args.port)
+        
+        # Check for production settings
+        use_https = os.getenv("QDRANT_USE_HTTPS", "false").lower() == "true"
+        api_key = os.getenv("QDRANT_API_KEY")
+        
+        if use_https or api_key:
+            # Production mode: Use URL with HTTPS and API key
+            protocol = "https" if use_https else "http"
+            url = f"{protocol}://{args.host}:{args.port}"
+            logger.info(f"  Mode: PRODUCTION ({protocol.upper()})")
+            if api_key:
+                logger.info("  Authentication: API Key enabled")
+            client = QdrantClient(url=url, api_key=api_key)
+        else:
+            # Development mode: Simple host + port
+            logger.info("  Mode: DEVELOPMENT (HTTP)")
+            client = QdrantClient(host=args.host, port=args.port)
         
         # Test connection
         collections = client.get_collections()
