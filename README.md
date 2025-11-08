@@ -1,6 +1,15 @@
 # Release Notes Ingestion Pipeline
 
+**Version:** 0.2.0  
+**Status:** ✅ Production Ready
+
 A production-ready ingestion pipeline for converting PDF/Word documents to markdown, chunking content, generating embeddings, and uploading to Qdrant vector database.
+
+**Latest Updates (v0.2.0):**
+- ✅ Qdrant production support (HTTPS + API key authentication)
+- ✅ File extension filtering to skip unwanted files
+- ✅ Enhanced security with credential masking
+- ✅ gRPC support for improved performance
 
 ## 🏗️ Architecture
 
