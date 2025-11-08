@@ -25,11 +25,22 @@ services:
       - QDRANT_FILENAME_COLLECTION=${QDRANT_FILENAME_COLLECTION:-filename-granite-embedding30m}
       - QDRANT_CONTENT_COLLECTION=${QDRANT_CONTENT_COLLECTION:-releasenotes-bge-m3}
       
+      # Qdrant Production Settings (v0.2.0)
+      - QDRANT_USE_HTTPS=${QDRANT_USE_HTTPS:-false}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      - QDRANT_GRPC_PORT=${QDRANT_GRPC_PORT:-}
+      - QDRANT_PREFER_GRPC=${QDRANT_PREFER_GRPC:-false}
+      
       # Ollama Configuration
       - OLLAMA_HOST=${OLLAMA_HOST}
       - OLLAMA_PORT=${OLLAMA_PORT:-11434}
       - OLLAMA_FILENAME_MODEL=${OLLAMA_FILENAME_MODEL:-granite-embedding:30m}
       - OLLAMA_CONTENT_MODEL=${OLLAMA_CONTENT_MODEL:-bge-m3}
+      
+      # Ollama Optional Parameters (v0.2.0)
+      - OLLAMA_TRUNCATE=${OLLAMA_TRUNCATE:-}
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-}
+      - OLLAMA_DIMENSIONS=${OLLAMA_DIMENSIONS:-}
       
       # Docling Configuration
       - DOCLING_BASE_URL=${DOCLING_BASE_URL}
@@ -45,6 +56,9 @@ services:
       - CONVERSION_LOG=${CONVERSION_LOG:-conversion.json}
       - UPLOAD_LOG=${UPLOAD_LOG:-upload.json}
       - FAILED_LOG=${FAILED_LOG:-failed.json}
+      
+      # File Processing Configuration (v0.2.0)
+      - SKIP_EXTENSIONS=${SKIP_EXTENSIONS:-.DS_Store}
     
     volumes:
       # Persist logs outside container
