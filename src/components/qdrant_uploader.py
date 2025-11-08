@@ -17,6 +17,10 @@ class QdrantUploader:
         self,
         host: str,
         port: int = 6333,
+        use_https: bool = False,
+        api_key: Optional[str] = None,
+        grpc_port: Optional[int] = None,
+        prefer_grpc: bool = False,
         filename_collection: str = "filename-granite-embedding30m",
         content_collection: str = "releasenotes-bge-m3"
     ):
@@ -26,14 +30,44 @@ class QdrantUploader:
         Args:
             host: Qdrant host
             port: Qdrant port
+            use_https: Use HTTPS connection (for production)
+            api_key: API key for authentication (for production)
+            grpc_port: gRPC port (optional, for better performance)
+            prefer_grpc: Prefer gRPC over HTTP
             filename_collection: Filename collection name
             content_collection: Content collection name
         """
-        self.client = QdrantClient(host=host, port=port)
+        # Build connection based on configuration
+        if use_https or api_key:
+            # Production mode: Use URL with HTTPS and API key
+            protocol = "https" if use_https else "http"
+            url = f"{protocol}://{host}:{port}"
+            
+            self.client = QdrantClient(
+                url=url,
+                api_key=api_key,
+                prefer_grpc=prefer_grpc
+            )
+            logger.info(f"Qdrant uploader initialized (PRODUCTION): {url}")
+            if api_key:
+                logger.info("  Authentication: API Key enabled (***)")
+        else:
+            # Development mode: Simple host + port
+            if grpc_port and prefer_grpc:
+                self.client = QdrantClient(
+                    host=host,
+                    port=port,
+                    grpc_port=grpc_port,
+                    prefer_grpc=True
+                )
+                logger.info(f"Qdrant uploader initialized (DEV + gRPC): {host}:{port} (gRPC: {grpc_port})")
+            else:
+                self.client = QdrantClient(host=host, port=port)
+                logger.info(f"Qdrant uploader initialized (DEV): {host}:{port}")
+        
         self.filename_collection = filename_collection
         self.content_collection = content_collection
         
-        logger.info(f"Qdrant uploader initialized: {host}:{port}")
         logger.info(f"  Filename collection: {filename_collection}")
         logger.info(f"  Content collection: {content_collection}")
         

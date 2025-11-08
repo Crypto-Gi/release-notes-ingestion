@@ -20,6 +20,16 @@ class QdrantConfig(BaseModel):
     """Qdrant configuration"""
     host: str = Field(..., description="Qdrant host")
     port: int = Field(default=6333, description="Qdrant port")
+    
+    # Production support
+    use_https: bool = Field(default=False, description="Use HTTPS connection")
+    api_key: Optional[str] = Field(default=None, description="API key for authentication")
+    
+    # Optional: gRPC support for better performance
+    grpc_port: Optional[int] = Field(default=None, description="gRPC port (optional)")
+    prefer_grpc: bool = Field(default=False, description="Prefer gRPC over HTTP")
+    
+    # Collection names
     filename_collection: str = Field(
         default="filename-granite-embedding30m",
         description="Filename collection name"
@@ -121,6 +131,10 @@ def load_config(env_file: Optional[str] = None) -> PipelineConfig:
     qdrant_config = QdrantConfig(
         host=os.getenv("QDRANT_HOST", ""),
         port=int(os.getenv("QDRANT_PORT", "6333")),
+        use_https=os.getenv("QDRANT_USE_HTTPS", "false").lower() == "true",
+        api_key=os.getenv("QDRANT_API_KEY") or None,
+        grpc_port=int(os.getenv("QDRANT_GRPC_PORT")) if os.getenv("QDRANT_GRPC_PORT") else None,
+        prefer_grpc=os.getenv("QDRANT_PREFER_GRPC", "false").lower() == "true",
         filename_collection=os.getenv("QDRANT_FILENAME_COLLECTION", "filename-granite-embedding30m"),
         content_collection=os.getenv("QDRANT_CONTENT_COLLECTION", "releasenotes-bge-m3")
     )

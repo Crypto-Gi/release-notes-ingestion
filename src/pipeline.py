@@ -80,6 +80,10 @@ class IngestionPipeline:
         self.qdrant_uploader = QdrantUploader(
             host=self.config.qdrant.host,
             port=self.config.qdrant.port,
+            use_https=self.config.qdrant.use_https,
+            api_key=self.config.qdrant.api_key,
+            grpc_port=self.config.qdrant.grpc_port,
+            prefer_grpc=self.config.qdrant.prefer_grpc,
             filename_collection=self.config.qdrant.filename_collection,
             content_collection=self.config.qdrant.content_collection
         )

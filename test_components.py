@@ -180,20 +180,29 @@ def test_qdrant_uploader(config):
         uploader = QdrantUploader(
             host=config.qdrant.host,
             port=config.qdrant.port,
+            use_https=config.qdrant.use_https,
+            api_key=config.qdrant.api_key,
+            grpc_port=config.qdrant.grpc_port,
+            prefer_grpc=config.qdrant.prefer_grpc,
             filename_collection=config.qdrant.filename_collection,
             content_collection=config.qdrant.content_collection
         )
         print("✅ Qdrant uploader initialized")
         print(f"   Qdrant: {config.qdrant.host}:{config.qdrant.port}")
+        print(f"   HTTPS: {config.qdrant.use_https}")
+        print(f"   API Key: {'***' if config.qdrant.api_key else 'None'}")
+        print(f"   gRPC: {config.qdrant.prefer_grpc}")
         print(f"   Filename collection: {config.qdrant.filename_collection}")
         print(f"   Content collection: {config.qdrant.content_collection}")
         
-        # Test connection
+        # Test health check
         try:
-            # The uploader connects in __init__, so if we got here it worked
-            print("   ✅ Connection successful")
+            if uploader.health_check():
+                print("   ✅ Qdrant is reachable")
+            else:
+                print("   ⚠️  Qdrant health check failed")
         except Exception as e:
-            print(f"   ⚠️  Connection warning: {e}")
+            print(f"   ⚠️  Health check error: {e}")
         
         return True
     except Exception as e:
