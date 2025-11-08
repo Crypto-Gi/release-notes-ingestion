@@ -1,15 +1,65 @@
 # Qdrant Configuration & Collections Guide
 
-**Last Updated:** November 7, 2025  
+**Version:** 0.2.0 ([VERSION](VERSION) | [CHANGELOG](CHANGELOG.md))  
+**Last Updated:** November 8, 2025  
 **Purpose:** Complete Qdrant setup and collection schema reference
 
 This document consolidates Qdrant collection setup instructions and collection structure details.
 
+## 🆕 What's New in v0.2.0
+
+**Production Qdrant Support:**
+- ✅ HTTPS connection support for secure production environments
+- ✅ API key authentication for Qdrant Cloud and secured instances
+- ✅ gRPC support for improved performance (optional)
+- ✅ Automatic connection mode detection (development vs production)
+
+**See [CHANGELOG.md](CHANGELOG.md) for complete version history.**
+
 ---
 
 **Table of Contents:**
+- [Production Qdrant Configuration](#production-qdrant-configuration-new-in-v020)
 - [1. Qdrant Collection Setup](#1-qdrant-collection-setup)
 - [2. Collection Structure & Schema](#2-collection-structure--schema)
+
+---
+
+## 🔐 **Production Qdrant Configuration** (New in v0.2.0)
+
+### **Development vs Production**
+
+**Development (Local Qdrant):**
+```bash
+QDRANT_HOST=192.168.254.22
+QDRANT_PORT=6333
+# No HTTPS, no API key needed
+```
+
+**Production (Qdrant Cloud):**
+```bash
+QDRANT_HOST=your-cluster.region.cloud.qdrant.io
+QDRANT_PORT=6333
+QDRANT_USE_HTTPS=true
+QDRANT_API_KEY=your-api-key-here
+```
+
+**Production (Self-hosted with HTTPS):**
+```bash
+QDRANT_HOST=qdrant.yourcompany.com
+QDRANT_PORT=6333
+QDRANT_USE_HTTPS=true
+QDRANT_API_KEY=your-api-key-here
+```
+
+### **Optional: gRPC for Performance**
+```bash
+# Add to any configuration for better performance
+QDRANT_GRPC_PORT=6334
+QDRANT_PREFER_GRPC=true
+```
+
+**See [CHANGELOG.md](CHANGELOG.md) for migration guide and full details.**
 
 ---
 
