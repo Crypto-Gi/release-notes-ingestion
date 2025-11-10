@@ -28,15 +28,26 @@ class LogManager:
         self.upload_log = self.log_dir / "upload.json"
         self.failed_log = self.log_dir / "failed.json"
         
+        # Phase 3: New log files
+        self.embedding_log = self.log_dir / "embedding.json"
+        self.qdrant_upload_log = self.log_dir / "qdrant_upload.json"
+        self.skipped_log = self.log_dir / "skipped.json"
+        
         # Thread locks for concurrent access
         self._conversion_lock = Lock()
         self._upload_lock = Lock()
         self._failed_lock = Lock()
+        self._embedding_lock = Lock()
+        self._qdrant_upload_lock = Lock()
+        self._skipped_lock = Lock()
         
         # Initialize log files if they don't exist
         self._init_log_file(self.conversion_log)
         self._init_log_file(self.upload_log)
         self._init_log_file(self.failed_log)
+        self._init_log_file(self.embedding_log)
+        self._init_log_file(self.qdrant_upload_log)
+        self._init_log_file(self.skipped_log)
         
         logger.info(f"Log manager initialized: {log_dir}")
     
@@ -201,6 +212,211 @@ class LogManager:
                 logger.error(f"Error adding failed entry: {e}")
                 return False
     
+    # ============================================
+    # Phase 3: Enhanced Logging Methods
+    # ============================================
+    
+    def log_embedding_success(
+        self,
+        filename: str,
+        md5_hash: str,
+        collection_name: str,
+        chunks_created: int,
+        embedding_time: float,
+        model_name: str
+    ) -> bool:
+        """
+        Log successful embedding creation
+        
+        Args:
+            filename: Name of the file
+            md5_hash: xxHash64 value (field name kept for compatibility)
+            collection_name: Target Qdrant collection
+            chunks_created: Number of chunks/embeddings created
+            embedding_time: Time taken to create embeddings (seconds)
+            model_name: Ollama model used
+            
+        Returns:
+            True if successful
+        """
+        with self._embedding_lock:
+            try:
+                entries = self._load_log(self.embedding_log)
+                
+                entry = {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "filename": filename,
+                    "md5_hash": md5_hash,  # xxHash64 value
+                    "collection_name": collection_name,
+                    "chunks_created": chunks_created,
+                    "embedding_time_seconds": round(embedding_time, 3),
+                    "model_name": model_name,
+                    "status": "success"
+                }
+                
+                entries.append(entry)
+                self._save_log(self.embedding_log, entries)
+                
+                logger.info(f"✅ Logged embedding success: {filename} ({chunks_created} chunks)")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error logging embedding success: {e}")
+                return False
+    
+    def log_qdrant_upload_success(
+        self,
+        filename: str,
+        md5_hash: str,
+        collection_name: str,
+        points_uploaded: int,
+        point_ids: List[str],
+        batch_size: int,
+        upload_time: float
+    ) -> bool:
+        """
+        Log successful Qdrant upload
+        
+        Args:
+            filename: Name of the file
+            md5_hash: xxHash64 value (field name kept for compatibility)
+            collection_name: Qdrant collection name
+            points_uploaded: Number of points uploaded
+            point_ids: List of Qdrant point UUIDs
+            batch_size: Batch size used
+            upload_time: Time taken to upload (seconds)
+            
+        Returns:
+            True if successful
+        """
+        with self._qdrant_upload_lock:
+            try:
+                entries = self._load_log(self.qdrant_upload_log)
+                
+                entry = {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "filename": filename,
+                    "md5_hash": md5_hash,  # xxHash64 value
+                    "collection_name": collection_name,
+                    "points_uploaded": points_uploaded,
+                    "point_ids": point_ids[:10],  # Store first 10 IDs only
+                    "batch_size": batch_size,
+                    "upload_time_seconds": round(upload_time, 3),
+                    "status": "success"
+                }
+                
+                entries.append(entry)
+                self._save_log(self.qdrant_upload_log, entries)
+                
+                logger.info(f"✅ Logged Qdrant upload: {filename} ({points_uploaded} points)")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error logging Qdrant upload: {e}")
+                return False
+    
+    def log_skipped_file(
+        self,
+        filename: str,
+        md5_hash: str,
+        skip_reason: str,
+        found_in: str,
+        collection_name: str,
+        original_processing_date: Optional[str] = None
+    ) -> bool:
+        """
+        Log skipped file due to deduplication
+        
+        Args:
+            filename: Name of the file
+            md5_hash: xxHash64 value (field name kept for compatibility)
+            skip_reason: Reason for skipping (already_embedded, already_in_qdrant, etc.)
+            found_in: Where duplicate was found (log_file, qdrant_collection, both)
+            collection_name: Target collection that would have been used
+            original_processing_date: When file was originally processed (if available)
+            
+        Returns:
+            True if successful
+        """
+        with self._skipped_lock:
+            try:
+                entries = self._load_log(self.skipped_log)
+                
+                entry = {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "filename": filename,
+                    "md5_hash": md5_hash,  # xxHash64 value
+                    "skip_reason": skip_reason,
+                    "found_in": found_in,
+                    "collection_name": collection_name
+                }
+                
+                if original_processing_date:
+                    entry["original_processing_date"] = original_processing_date
+                
+                entries.append(entry)
+                self._save_log(self.skipped_log, entries)
+                
+                logger.info(f"⏭️  Logged skipped file: {filename} ({skip_reason})")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error logging skipped file: {e}")
+                return False
+    
+    def check_embedding_exists(self, md5_hash: str) -> bool:
+        """
+        Check if file has already been embedded (from log)
+        
+        Args:
+            md5_hash: xxHash64 value to check
+            
+        Returns:
+            True if file is in embedding log
+        """
+        with self._embedding_lock:
+            entries = self._load_log(self.embedding_log)
+            return any(entry.get("md5_hash") == md5_hash for entry in entries)
+    
+    def check_qdrant_exists(
+        self,
+        client,
+        collection_name: str,
+        md5_hash: str
+    ) -> bool:
+        """
+        Check if file already exists in Qdrant collection
+        
+        Args:
+            client: QdrantClient instance
+            collection_name: Name of the collection
+            md5_hash: xxHash64 value to check
+            
+        Returns:
+            True if file exists in Qdrant
+        """
+        try:
+            from qdrant_client import models
+            
+            results = client.scroll(
+                collection_name=collection_name,
+                scroll_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="metadata.md5_hash",
+                            match=models.MatchValue(value=md5_hash)
+                        )
+                    ]
+                ),
+                limit=1
+            )
+            
+            return len(results[0]) > 0
+            
+        except Exception as e:
+            logger.error(f"Error checking Qdrant for hash {md5_hash}: {e}")
+            return False
+    
     def is_converted(self, file_hash: str) -> bool:
         """
         Check if file has been converted
@@ -268,6 +484,21 @@ class LogManager:
         with self._upload_lock:
             return self._load_log(self.upload_log)
     
+    def get_embedding_log(self) -> List[Dict]:
+        """Get all embedding log entries"""
+        with self._embedding_lock:
+            return self._load_log(self.embedding_log)
+    
+    def get_qdrant_upload_log(self) -> List[Dict]:
+        """Get all Qdrant upload log entries"""
+        with self._qdrant_upload_lock:
+            return self._load_log(self.qdrant_upload_log)
+    
+    def get_skipped_log(self) -> List[Dict]:
+        """Get all skipped files log entries"""
+        with self._skipped_lock:
+            return self._load_log(self.skipped_log)
+    
     def get_stats(self) -> Dict:
         """
         Get statistics about processed files
@@ -278,7 +509,10 @@ class LogManager:
         return {
             "converted": len(self.get_conversion_log()),
             "uploaded": len(self.get_upload_log()),
-            "failed": len(self.get_failed_files())
+            "failed": len(self.get_failed_files()),
+            "embedded": len(self.get_embedding_log()),
+            "qdrant_uploaded": len(self.get_qdrant_upload_log()),
+            "skipped": len(self.get_skipped_log())
         }
 
 
