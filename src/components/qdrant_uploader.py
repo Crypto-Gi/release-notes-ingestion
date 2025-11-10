@@ -2,10 +2,14 @@
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct, Distance, VectorParams
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 import uuid
 import logging
+import time
 from pathlib import Path
+
+if TYPE_CHECKING:
+    from .log_manager import LogManager
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +26,10 @@ class QdrantUploader:
         grpc_port: Optional[int] = None,
         prefer_grpc: bool = False,
         filename_collection: str = "filename-granite-embedding30m",
-        content_collection: str = "releasenotes-bge-m3"
+        content_collection: str = "releasenotes-bge-m3",
+        log_manager: Optional["LogManager"] = None,
+        enable_logging: bool = True,
+        batch_size: int = 100
     ):
         """
         Initialize Qdrant uploader
@@ -36,6 +43,9 @@ class QdrantUploader:
             prefer_grpc: Prefer gRPC over HTTP
             filename_collection: Filename collection name
             content_collection: Content collection name
+            log_manager: LogManager instance for Phase 3 logging (optional)
+            enable_logging: Enable Phase 3 logging (default: True)
+            batch_size: Batch size for uploads (default: 100)
         """
         # Build connection based on configuration
         if use_https or api_key:
@@ -68,8 +78,16 @@ class QdrantUploader:
         self.filename_collection = filename_collection
         self.content_collection = content_collection
         
+        # Phase 3: Logging configuration
+        self.log_manager = log_manager
+        self.enable_logging = enable_logging
+        self.batch_size = batch_size
+        
         logger.info(f"  Filename collection: {filename_collection}")
         logger.info(f"  Content collection: {content_collection}")
+        logger.info(f"  Batch size: {batch_size}")
+        if log_manager:
+            logger.info(f"  Phase 3 logging: enabled")
         
         # Verify collections exist
         self._verify_collections()
@@ -193,16 +211,38 @@ class QdrantUploader:
                 return False
             
             # Upload to Qdrant in batches
-            batch_size = 100
-            for i in range(0, len(points), batch_size):
-                batch = points[i:i + batch_size]
+            start_time = time.time()
+            point_ids = []
+            
+            for i in range(0, len(points), self.batch_size):
+                batch = points[i:i + self.batch_size]
                 self.client.upsert(
                     collection_name=self.content_collection,
                     points=batch
                 )
-                logger.debug(f"Uploaded batch {i // batch_size + 1}: {len(batch)} points")
+                # Collect point IDs
+                point_ids.extend([p.id for p in batch])
+                logger.debug(f"Uploaded batch {i // self.batch_size + 1}: {len(batch)} points")
+            
+            upload_time = time.time() - start_time
             
             logger.info(f"Uploaded {len(points)} content chunks for {filename}")
+            
+            # Phase 3: Log Qdrant upload success
+            if self.enable_logging and self.log_manager:
+                # Get file hash from first chunk
+                file_hash = chunks[0].md5_hash if chunks else "unknown"
+                
+                self.log_manager.log_qdrant_upload_success(
+                    filename=filename,
+                    md5_hash=file_hash,
+                    collection_name=self.content_collection,
+                    points_uploaded=len(points),
+                    point_ids=point_ids,
+                    batch_size=self.batch_size,
+                    upload_time=upload_time
+                )
+            
             return True
             
         except Exception as e:

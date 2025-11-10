@@ -1,9 +1,14 @@
 """Ollama embedding client for generating vector embeddings"""
 
 import requests
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 import logging
+import time
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+if TYPE_CHECKING:
+    from .log_manager import LogManager
+    from .file_hasher import FileHasher
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +24,10 @@ class EmbeddingClient:
         content_model: str = "bge-m3",
         truncate: Optional[bool] = None,
         keep_alive: Optional[str] = None,
-        dimensions: Optional[int] = None
+        dimensions: Optional[int] = None,
+        log_manager: Optional["LogManager"] = None,
+        enable_deduplication: bool = True,
+        enable_logging: bool = True
     ):
         """
         Initialize embedding client
@@ -32,6 +40,9 @@ class EmbeddingClient:
             truncate: Truncate input to fit context (default: Ollama default=true)
             keep_alive: How long to keep model in memory (default: Ollama default=5m)
             dimensions: Override embedding dimensions (default: model's native dimensions)
+            log_manager: LogManager instance for Phase 3 logging (optional)
+            enable_deduplication: Enable deduplication checks (default: True)
+            enable_logging: Enable Phase 3 logging (default: True)
         """
         self.base_url = f"http://{host}:{port}"
         self.filename_model = filename_model
@@ -39,6 +50,11 @@ class EmbeddingClient:
         self.truncate = truncate
         self.keep_alive = keep_alive
         self.dimensions = dimensions
+        
+        # Phase 3: Logging and deduplication
+        self.log_manager = log_manager
+        self.enable_deduplication = enable_deduplication
+        self.enable_logging = enable_logging
         
         logger.info(f"Embedding client initialized: {self.base_url}")
         logger.info(f"  Filename model: {filename_model}")
@@ -49,6 +65,9 @@ class EmbeddingClient:
             logger.info(f"  Keep alive: {keep_alive}")
         if dimensions is not None:
             logger.info(f"  Dimensions override: {dimensions}")
+        if log_manager:
+            logger.info(f"  Phase 3 logging: enabled")
+            logger.info(f"  Deduplication: {'enabled' if enable_deduplication else 'disabled'}")
     
     @retry(
         stop=stop_after_attempt(3),
@@ -185,6 +204,98 @@ class EmbeddingClient:
                 logger.info(f"Generated {i + 1}/{len(texts)} embeddings")
         
         logger.info(f"Batch embedding complete: {len(embeddings)} vectors")
+        return embeddings
+    
+    # ============================================
+    # Phase 3: Enhanced Batch Embedding with Deduplication
+    # ============================================
+    
+    def generate_batch_embeddings_with_dedup(
+        self,
+        filename: str,
+        file_content: bytes,
+        chunks: List[str],
+        collection_name: str,
+        model_type: str = "content",
+        qdrant_client = None,
+        force_reprocess: bool = False
+    ) -> Optional[List[Optional[List[float]]]]:
+        """
+        Generate embeddings for chunks with deduplication and logging
+        
+        Args:
+            filename: Name of the source file
+            file_content: Raw file content for hashing
+            chunks: List of text chunks to embed
+            collection_name: Target Qdrant collection
+            model_type: "filename" or "content"
+            qdrant_client: QdrantClient instance for deduplication check (optional)
+            force_reprocess: Skip deduplication checks (default: False)
+            
+        Returns:
+            List of embedding vectors, or None if skipped due to deduplication
+        """
+        from .file_hasher import FileHasher
+        
+        # Calculate xxHash for deduplication
+        file_hash = FileHasher.hash_file_lightweight(file_content)
+        
+        # Phase 3: Deduplication check
+        if self.enable_deduplication and not force_reprocess and self.log_manager:
+            # Check 1: Embedding log
+            if self.log_manager.check_embedding_exists(file_hash):
+                logger.info(f"⏭️  Skipping {filename} - already embedded (log)")
+                
+                if self.enable_logging:
+                    self.log_manager.log_skipped_file(
+                        filename=filename,
+                        md5_hash=file_hash,
+                        skip_reason="already_embedded",
+                        found_in="log_file",
+                        collection_name=collection_name
+                    )
+                
+                return None
+            
+            # Check 2: Qdrant collection
+            if qdrant_client and self.log_manager.check_qdrant_exists(
+                qdrant_client, collection_name, file_hash
+            ):
+                logger.info(f"⏭️  Skipping {filename} - already in Qdrant")
+                
+                if self.enable_logging:
+                    self.log_manager.log_skipped_file(
+                        filename=filename,
+                        md5_hash=file_hash,
+                        skip_reason="already_in_qdrant",
+                        found_in="qdrant_collection",
+                        collection_name=collection_name
+                    )
+                
+                return None
+        
+        # Generate embeddings
+        logger.info(f"🔄 Generating embeddings for {filename} ({len(chunks)} chunks)")
+        start_time = time.time()
+        
+        embeddings = self.generate_batch_embeddings(chunks, model_type)
+        
+        embedding_time = time.time() - start_time
+        
+        # Phase 3: Log embedding success
+        if self.enable_logging and self.log_manager:
+            model_name = self.content_model if model_type == "content" else self.filename_model
+            
+            self.log_manager.log_embedding_success(
+                filename=filename,
+                md5_hash=file_hash,
+                collection_name=collection_name,
+                chunks_created=len(chunks),
+                embedding_time=embedding_time,
+                model_name=model_name
+            )
+        
+        logger.info(f"✅ Generated {len(embeddings)} embeddings in {embedding_time:.2f}s")
         return embeddings
     
     def health_check(self) -> bool:
