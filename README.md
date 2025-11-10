@@ -1,6 +1,6 @@
 # Release Notes Ingestion Pipeline
 
-**Version:** 0.2.0 ([VERSION](VERSION) | [CHANGELOG](CHANGELOG.md) | [Release Notes](RELEASE_NOTES_v0.2.0.md))  
+**Version:** 0.2.0 ([VERSION](VERSION) | [CHANGELOG](docs/CHANGELOG.md))  
 **Status:** ✅ Production Ready
 
 A production-ready ingestion pipeline for converting PDF/Word documents to markdown, chunking content, generating embeddings, and uploading to Qdrant vector database.
@@ -11,11 +11,11 @@ A production-ready ingestion pipeline for converting PDF/Word documents to markd
 - ✅ Enhanced security with credential masking
 - ✅ gRPC support for improved performance
 
-📖 **Documentation:**
-- [CHANGELOG.md](CHANGELOG.md) - Complete version history
-- [RELEASE_NOTES_v0.2.0.md](RELEASE_NOTES_v0.2.0.md) - Detailed release notes
-- [QDRANT.md](QDRANT.md) - Qdrant setup and configuration guide
-- [DOCUMENTATION.md](DOCUMENTATION.md) - Complete technical documentation
+📖 **Quick Links:**
+- [docs/QDRANT.md](docs/QDRANT.md) - Qdrant setup and configuration
+- [docs/INDEXING_GUIDE.md](docs/INDEXING_GUIDE.md) - Complete indexing guide
+- [docs/REFERENCE.md](docs/REFERENCE.md) - Technical reference
+- [docs/CHANGELOG.md](docs/CHANGELOG.md) - Version history
 
 ## 🏗️ Architecture
 
@@ -276,11 +276,23 @@ curl http://192.168.254.22:6333/collections
 
 ## 📚 Documentation
 
-- **[DOCUMENTATION.md](DOCUMENTATION.md)** - Complete setup, configuration, and testing guide
-- **[QDRANT.md](QDRANT.md)** - Qdrant setup and collection schema
-- **[DOCKER.md](DOCKER.md)** - Docker deployment guide
-- **[REFERENCE.md](REFERENCE.md)** - Implementation details and historical documentation
-- **[ARCHIVED/](ARCHIVED/)** - Original documentation files (archived)
+All documentation has been organized in the `docs/` folder:
+
+### Core Documentation
+- **[docs/QDRANT.md](docs/QDRANT.md)** - Qdrant setup and collection schema
+- **[docs/REFERENCE.md](docs/REFERENCE.md)** - Complete technical reference
+- **[docs/CHANGELOG.md](docs/CHANGELOG.md)** - Version history
+- **[docs/DOCLING_ANALYSIS.md](docs/DOCLING_ANALYSIS.md)** - Docling service analysis
+
+### Guides
+- **[docs/INDEXING_GUIDE.md](docs/INDEXING_GUIDE.md)** - Complete Qdrant indexing guide
+  - All 8 index types (Keyword, Integer, Float, Bool, Geo, DateTime, UUID, Text)
+  - Tokenizer explained
+  - API reference (HTTP & Python)
+  - Best practices
+
+### Archived
+- **[ARCHIVED/](ARCHIVED/)** - Older documentation files (archived for reference)
 
 ## 🤝 Contributing
 
