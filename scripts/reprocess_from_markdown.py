@@ -55,6 +55,9 @@ class MarkdownReprocessor:
             bucket_name=self.config.r2.bucket_name
         )
         
+        # Initialize LogManager first (needed for Phase 3)
+        self.log_manager = LogManager(log_dir=self.config.log.log_dir)
+        
         self.embedding_client = EmbeddingClient(
             host=self.config.ollama.host,
             port=self.config.ollama.port,
@@ -62,7 +65,10 @@ class MarkdownReprocessor:
             content_model=self.config.ollama.content_model,
             truncate=self.config.ollama.truncate,
             keep_alive=self.config.ollama.keep_alive,
-            dimensions=self.config.ollama.dimensions
+            dimensions=self.config.ollama.dimensions,
+            log_manager=self.log_manager,
+            enable_deduplication=True,
+            enable_logging=True
         )
         
         self.qdrant_uploader = QdrantUploader(
@@ -73,7 +79,10 @@ class MarkdownReprocessor:
             grpc_port=self.config.qdrant.grpc_port,
             prefer_grpc=self.config.qdrant.prefer_grpc,
             filename_collection=self.config.qdrant.filename_collection,
-            content_collection=self.config.qdrant.content_collection
+            content_collection=self.config.qdrant.content_collection,
+            log_manager=self.log_manager,
+            enable_logging=True,
+            batch_size=int(os.getenv('QDRANT_BATCH_SIZE', '100'))
         )
         
         self.chunker = SemanticChunker(
@@ -82,12 +91,16 @@ class MarkdownReprocessor:
         )
         
         self.file_hasher = FileHasher()
-        self.log_manager = LogManager(log_dir=self.config.log.log_dir)
+        
+        # Get force reprocess flag from environment
+        self.force_reprocess = os.getenv('FORCE_REPROCESS', 'false').lower() == 'true'
         
         logger.info("Markdown reprocessor initialized")
         logger.info(f"  Markdown prefix: {self.config.r2.markdown_prefix}")
         logger.info(f"  Filename collection: {self.config.qdrant.filename_collection}")
         logger.info(f"  Content collection: {self.config.qdrant.content_collection}")
+        logger.info(f"  Phase 3 deduplication: enabled")
+        logger.info(f"  Force reprocess: {self.force_reprocess}")
     
     def process_markdown_file(self, markdown_key: str) -> bool:
         """
@@ -101,7 +114,15 @@ class MarkdownReprocessor:
         """
         # Extract filename from markdown key
         # e.g., "markdown/path/to/file.md" → "file.pdf"
-        filename = Path(markdown_key).stem + ".pdf"  # Assume original was PDF
+        # Try to preserve original extension if stored in path, otherwise assume PDF
+        markdown_path = Path(markdown_key)
+        stem = markdown_path.stem
+        
+        # Check if stem contains original extension (e.g., "file.pdf" or "file.docx")
+        if '.' in stem:
+            filename = stem  # Already has extension
+        else:
+            filename = stem + ".pdf"  # Default to PDF
         
         logger.info(f"\nProcessing: {markdown_key}")
         logger.info(f"  Original filename: {filename}")
@@ -113,7 +134,13 @@ class MarkdownReprocessor:
             if not markdown_content:
                 raise Exception("Failed to download markdown")
             
-            markdown = markdown_content.decode('utf-8')
+            # Try UTF-8 first, fallback to latin-1 if needed
+            try:
+                markdown = markdown_content.decode('utf-8')
+            except UnicodeDecodeError:
+                logger.warning("  UTF-8 decode failed, trying latin-1...")
+                markdown = markdown_content.decode('latin-1')
+            
             logger.info(f"  Downloaded: {len(markdown)} characters")
             
             # Step 2: Chunk markdown
@@ -132,12 +159,26 @@ class MarkdownReprocessor:
             
             logger.info(f"  Generated: {len(filename_embedding)}D vector")
             
-            # Step 4: Generate content embeddings
+            # Step 4: Generate content embeddings with Phase 3 deduplication
             logger.info(f"[4/5] Generating content embeddings...")
             content_texts = [chunk.text for chunk in chunks]
-            content_embeddings = self.embedding_client.generate_batch_embeddings(
-                content_texts, "content"
+            
+            # Use Phase 3 method with deduplication
+            content_embeddings = self.embedding_client.generate_batch_embeddings_with_dedup(
+                filename=filename,
+                file_content=markdown_content,  # Use original bytes for hash
+                chunks=content_texts,
+                collection_name=self.config.qdrant.content_collection,
+                model_type="content",
+                qdrant_client=self.qdrant_uploader.client,
+                force_reprocess=self.force_reprocess
             )
+            
+            # If None, file was skipped due to deduplication
+            if content_embeddings is None:
+                logger.info(f"⏭️  Skipped {filename} - already processed")
+                return True  # Not a failure, just skipped
+            
             if not content_embeddings:
                 raise Exception("Content embeddings failed")
             
@@ -146,8 +187,8 @@ class MarkdownReprocessor:
             # Step 5: Upload to Qdrant
             logger.info(f"[5/5] Uploading to Qdrant...")
             
-            # Generate lightweight hash for filename
-            lightweight_hash = self.file_hasher.hash_text(filename)
+            # Generate xxHash for filename (use file content for consistency)
+            lightweight_hash = self.file_hasher.hash_file_lightweight(markdown_content)
             
             # Upload filename
             if not self.qdrant_uploader.upload_filename(
@@ -227,11 +268,20 @@ class MarkdownReprocessor:
         results = {
             "total_files": len(markdown_files),
             "processed": 0,
+            "skipped": 0,
             "failed": 0
         }
         
         for i, file_info in enumerate(markdown_files, 1):
             logger.info(f"\n[{i}/{len(markdown_files)}] Processing: {file_info['key']}")
+            
+            # Check if file was already processed (before downloading)
+            # This is a quick check using the log
+            file_hash = self.file_hasher.hash_text(file_info['key'])
+            if not self.force_reprocess and self.log_manager.check_embedding_exists(file_hash):
+                logger.info(f"⏭️  Skipping (already in log): {file_info['key']}")
+                results["skipped"] += 1
+                continue
             
             if self.process_markdown_file(file_info['key']):
                 results["processed"] += 1
@@ -246,6 +296,7 @@ class MarkdownReprocessor:
         logger.info("=" * 60)
         logger.info("Reprocessing complete!")
         logger.info(f"  Processed: {results['processed']}")
+        logger.info(f"  Skipped: {results['skipped']}")
         logger.info(f"  Failed: {results['failed']}")
         logger.info(f"  Duration: {elapsed:.1f}s")
         logger.info(f"  Speed: {results['files_per_second']:.2f} files/sec")
@@ -275,5 +326,6 @@ if __name__ == "__main__":
     print("\nFinal Results:")
     print(f"  Total files: {results.get('total_files', 0)}")
     print(f"  Processed: {results.get('processed', 0)}")
+    print(f"  Skipped: {results.get('skipped', 0)}")
     print(f"  Failed: {results.get('failed', 0)}")
     print(f"  Duration: {results.get('duration_seconds', 0):.1f}s")
