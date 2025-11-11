@@ -393,7 +393,7 @@ class LogManager:
             md5_hash: xxHash64 value to check
             
         Returns:
-            True if file exists in Qdrant
+            True if file exists in Qdrant, False if not or if check fails
         """
         try:
             from qdrant_client import models
@@ -414,8 +414,25 @@ class LogManager:
             return len(results[0]) > 0
             
         except Exception as e:
-            logger.error(f"Error checking Qdrant for hash {md5_hash}: {e}")
-            return False
+            error_msg = str(e)
+            
+            # Check if error is due to missing index
+            if "Index required but not found" in error_msg and "metadata.md5_hash" in error_msg:
+                # Missing index - this is expected for new collections
+                # Log warning once, then skip Qdrant check
+                if not hasattr(self, '_index_warning_shown'):
+                    logger.warning(f"⚠️  Index 'metadata.md5_hash' not found in collection '{collection_name}'")
+                    logger.warning(f"   Skipping Qdrant deduplication check (will rely on log file)")
+                    logger.warning(f"   To enable Qdrant deduplication, create the index:")
+                    logger.warning(f"   python scripts/create_payload_indexes_advanced.py")
+                    self._index_warning_shown = True
+                
+                # Return False to indicate file doesn't exist (safe assumption)
+                return False
+            else:
+                # Other error - log and return False
+                logger.error(f"Error checking Qdrant for hash {md5_hash}: {e}")
+                return False
     
     def is_converted(self, file_hash: str) -> bool:
         """
