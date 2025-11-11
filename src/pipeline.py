@@ -1,6 +1,7 @@
 """Main ingestion pipeline orchestration"""
 
 import logging
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -67,11 +68,39 @@ class IngestionPipeline:
             chunk_overlap_tokens=self.config.chunking.chunk_overlap_tokens
         )
         
+        filename_model_override = (
+            os.getenv("PIPELINE_FILENAME_MODEL")
+            or os.getenv("EMBEDDING_FILENAME_MODEL")
+        )
+        content_model_override = (
+            os.getenv("PIPELINE_CONTENT_MODEL")
+            or os.getenv("EMBEDDING_CONTENT_MODEL")
+        )
+
+        filename_model = filename_model_override or self.config.ollama.filename_model
+        content_model = content_model_override or self.config.ollama.content_model
+
+        if filename_model_override:
+            logger.info(
+                "Using filename embedding model override from environment: %s",
+                filename_model,
+            )
+        else:
+            logger.info("Using filename embedding model from configuration: %s", filename_model)
+
+        if content_model_override:
+            logger.info(
+                "Using content embedding model override from environment: %s",
+                content_model,
+            )
+        else:
+            logger.info("Using content embedding model from configuration: %s", content_model)
+
         self.embedding_client = EmbeddingClient(
             host=self.config.ollama.host,
             port=self.config.ollama.port,
-            filename_model=self.config.ollama.filename_model,
-            content_model=self.config.ollama.content_model,
+            filename_model=filename_model,
+            content_model=content_model,
             truncate=self.config.ollama.truncate,
             keep_alive=self.config.ollama.keep_alive,
             dimensions=self.config.ollama.dimensions
