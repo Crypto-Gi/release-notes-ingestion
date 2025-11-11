@@ -200,10 +200,25 @@ class IngestionPipeline:
                 self.log_manager.add_failed_entry(filename, file_hash, "Filename embedding failed", "ollama")
                 return False
             
-            # Step 8: Generate content embeddings
+            # Step 8: Generate content embeddings with deduplication
             logger.info(f"[8/9] Generating content embeddings...")
             content_texts = [chunk.text for chunk in chunks]
-            content_embeddings = self.embedding_client.generate_batch_embeddings(content_texts, "content")
+            content_embeddings = self.embedding_client.generate_batch_embeddings_with_dedup(
+                filename=filename,
+                file_content=file_content,
+                chunks=content_texts,
+                collection_name=self.config.qdrant.content_collection,
+                model_type="content",
+                qdrant_client=self.qdrant_uploader.client,
+                force_reprocess=False
+            )
+            
+            # If None returned, file was skipped due to deduplication
+            if content_embeddings is None:
+                logger.info(f"⏭️  Content embeddings already exist for {filename}")
+                # Still mark as successful since embeddings exist
+                self.log_manager.add_upload_entry(filename, file_hash)
+                return True
             
             # Step 9: Upload to Qdrant
             logger.info(f"[9/9] Uploading to Qdrant...")
