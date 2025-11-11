@@ -185,14 +185,39 @@ class MarkdownReprocessor:
         
         # List markdown files in R2
         logger.info(f"Listing markdown files in {self.config.r2.markdown_prefix}...")
-        markdown_files = self.r2_client.list_files(
+        all_files = self.r2_client.list_files(
             prefix=self.config.r2.markdown_prefix
         )
         
-        # Filter to only .md files
-        markdown_files = [f for f in markdown_files if f['key'].endswith('.md')]
+        logger.info(f"Total files found: {len(all_files)}")
         
-        logger.info(f"Found {len(markdown_files)} markdown files")
+        # Filter to only .md files (case-insensitive)
+        markdown_files = [f for f in all_files if f['key'].lower().endswith('.md')]
+        
+        # Log filtered vs total
+        filtered_out = len(all_files) - len(markdown_files)
+        if filtered_out > 0:
+            logger.warning(f"Filtered out {filtered_out} non-markdown files")
+            # Show sample of filtered files
+            non_md = [f['key'] for f in all_files if not f['key'].lower().endswith('.md')][:5]
+            if non_md:
+                logger.warning(f"Sample non-markdown files: {non_md}")
+        
+        logger.info(f"Found {len(markdown_files)} markdown files (.md)")
+        
+        # Log directory distribution
+        directories = {}
+        for f in markdown_files:
+            # Extract directory from key (e.g., "markdown/orchestrator/file.md" -> "orchestrator")
+            parts = f['key'].split('/')
+            if len(parts) > 2:  # Has subdirectory
+                dir_name = parts[1]  # First directory after markdown/
+                directories[dir_name] = directories.get(dir_name, 0) + 1
+        
+        if directories:
+            logger.info(f"Files by directory:")
+            for dir_name, count in sorted(directories.items()):
+                logger.info(f"  {dir_name}/: {count} files")
         
         if limit:
             markdown_files = markdown_files[:limit]
