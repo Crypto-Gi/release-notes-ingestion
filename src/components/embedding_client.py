@@ -271,9 +271,9 @@ class EmbeddingClient:
         
         # Phase 3: Deduplication check
         if self.enable_deduplication and not force_reprocess and self.log_manager:
-            # Check 1: Embedding log
-            if self.log_manager.check_embedding_exists(file_hash):
-                logger.info(f"⏭️  Skipping {filename} - already embedded (log)")
+            # Check 1: Embedding log (check by collection to avoid false positives)
+            if self.log_manager.check_embedding_exists(file_hash, collection_name):
+                logger.info(f"⏭️  Skipping {filename} - already embedded in '{collection_name}' (log)")
                 
                 if self.enable_logging:
                     self.log_manager.log_skipped_file(

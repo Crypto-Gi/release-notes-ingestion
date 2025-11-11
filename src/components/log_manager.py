@@ -364,18 +364,29 @@ class LogManager:
                 logger.error(f"Error logging skipped file: {e}")
                 return False
     
-    def check_embedding_exists(self, md5_hash: str) -> bool:
+    def check_embedding_exists(self, md5_hash: str, collection_name: Optional[str] = None) -> bool:
         """
         Check if file has already been embedded (from log)
         
         Args:
             md5_hash: xxHash64 value to check
+            collection_name: Optional collection name to filter by (e.g., 'content', 'filenames')
             
         Returns:
-            True if file is in embedding log
+            True if file is in embedding log (optionally filtered by collection)
         """
         with self._embedding_lock:
             entries = self._load_log(self.embedding_log)
+            
+            # If collection_name specified, check for that specific collection
+            if collection_name:
+                return any(
+                    entry.get("md5_hash") == md5_hash and 
+                    entry.get("collection_name") == collection_name 
+                    for entry in entries
+                )
+            
+            # Otherwise check if hash exists in any collection
             return any(entry.get("md5_hash") == md5_hash for entry in entries)
     
     def check_qdrant_exists(
