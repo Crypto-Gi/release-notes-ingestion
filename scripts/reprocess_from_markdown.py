@@ -16,6 +16,7 @@ Use this when you already have markdown files and want to:
 """
 
 import sys
+import os
 from pathlib import Path
 from datetime import datetime
 
