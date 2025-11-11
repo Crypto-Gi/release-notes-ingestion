@@ -609,6 +609,99 @@ def get_existing_indexes(client: QdrantClient, collection_name: str) -> dict:
         return {}
 
 
+def create_manual_index(client: QdrantClient, collection_name: str, existing_indexes: Dict):
+    """Create an index manually by specifying field name and type"""
+    print(f"\n{'=' * 80}")
+    print("MANUAL INDEX CREATION")
+    print("=" * 80)
+    
+    # Get field name
+    print("\nEnter the field name to index:")
+    print("  Examples:")
+    print("    - metadata.md5_hash")
+    print("    - metadata.filename")
+    print("    - metadata.page_number")
+    print("    - pagecontent")
+    
+    field_name = input("\nField name: ").strip()
+    
+    if not field_name:
+        logger.error("❌ Field name cannot be empty")
+        return
+    
+    # Check if already indexed
+    if field_name in existing_indexes:
+        logger.warning(f"⚠️  Field '{field_name}' already has an index: {existing_indexes[field_name]['type']}")
+        choice = input("Overwrite? (y/n) [n]: ").strip().lower()
+        if choice != 'y':
+            return
+    
+    # Select index type
+    print(f"\n{'─' * 80}")
+    print("SELECT INDEX TYPE:")
+    print("─" * 80)
+    print("  1. Keyword   - Exact string matching (IDs, hashes, filenames)")
+    print("  2. Integer   - Whole numbers (counts, page numbers)")
+    print("  3. Float     - Decimal numbers (scores, ratings)")
+    print("  4. Bool      - True/false values")
+    print("  5. DateTime  - Timestamps")
+    print("  6. Text      - Full-text search")
+    print("  0. Cancel")
+    
+    type_choice = input("\nSelect type (0-6): ").strip()
+    
+    type_map = {
+        '1': ('keyword', models.PayloadSchemaType.KEYWORD),
+        '2': ('integer', models.PayloadSchemaType.INTEGER),
+        '3': ('float', models.PayloadSchemaType.FLOAT),
+        '4': ('bool', models.PayloadSchemaType.BOOL),
+        '5': ('datetime', models.PayloadSchemaType.DATETIME),
+        '6': ('text', None)  # Text requires special handling
+    }
+    
+    if type_choice == '0':
+        return
+    
+    if type_choice not in type_map:
+        logger.error("❌ Invalid choice")
+        return
+    
+    type_name, schema_type = type_map[type_choice]
+    
+    # Create the index
+    try:
+        print(f"\n🔄 Creating {type_name} index for '{field_name}'...")
+        
+        if type_choice == '6':  # Text index
+            # Text index requires TextIndexParams
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name=field_name,
+                field_schema=models.TextIndexParams(
+                    type="text",
+                    tokenizer=models.TokenizerType.WORD,
+                    min_token_len=1,
+                    max_token_len=15,
+                    lowercase=True
+                ),
+                wait=True
+            )
+        else:
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name=field_name,
+                field_schema=schema_type,
+                wait=True
+            )
+        
+        logger.info(f"✅ Index created successfully!")
+        logger.info(f"   Field: {field_name}")
+        logger.info(f"   Type: {type_name}")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to create index: {e}")
+
+
 def process_collection(client: QdrantClient, collection_name: str, collection_label: str, all_collections: list):
     """Process a single collection"""
     print_section_header(f"{collection_label} Collection: {collection_name}")
@@ -657,9 +750,21 @@ def process_collection(client: QdrantClient, collection_name: str, collection_la
     else:
         print(f"\n📋 Existing Payload Indexes: None")
     
+    # Check if collection is empty
     if info.points_count == 0:
-        logger.warning(f"⚠️  Collection is empty.")
-        input("\nPress Enter to continue...")
+        logger.warning(f"⚠️  Collection is empty. You can still create indexes for future data.")
+        
+        # Allow manual index creation for empty collections
+        print(f"\n{'─' * 80}")
+        print("OPTIONS:")
+        print("  1. Create index manually (specify field name and type)")
+        print("  0. Go back")
+        
+        choice = input(f"\nSelect option (0-1): ").strip()
+        
+        if choice == '1':
+            create_manual_index(client, collection_name, existing_indexes)
+        
         return
     
     # Get sample payload and extract fields
@@ -668,7 +773,18 @@ def process_collection(client: QdrantClient, collection_name: str, collection_la
     
     if not sample_payload:
         logger.warning(f"⚠️  Could not get sample payload.")
-        input("\nPress Enter to continue...")
+        
+        # Allow manual index creation even without sample
+        print(f"\n{'─' * 80}")
+        print("OPTIONS:")
+        print("  1. Create index manually (specify field name and type)")
+        print("  0. Go back")
+        
+        choice = input(f"\nSelect option (0-1): ").strip()
+        
+        if choice == '1':
+            create_manual_index(client, collection_name, existing_indexes)
+        
         return
     
     fields = extract_metadata_fields(sample_payload)
