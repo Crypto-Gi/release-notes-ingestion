@@ -219,6 +219,20 @@ class MarkdownReprocessor:
             
         except Exception as e:
             logger.error(f"❌ Failed to process {markdown_key}: {e}")
+            
+            # Log failure to failed.json
+            try:
+                # Calculate hash for logging (use markdown key if content unavailable)
+                file_hash = self.file_hasher.hash_text(markdown_key)
+                self.log_manager.add_failed_entry(
+                    filename=filename if 'filename' in locals() else markdown_key,
+                    file_hash=file_hash,
+                    error_message=str(e),
+                    stage="reprocess"
+                )
+            except Exception as log_error:
+                logger.error(f"Failed to log error: {log_error}")
+            
             return False
     
     def run(self, limit: int = None) -> dict:
