@@ -1,6 +1,7 @@
 """Main ingestion pipeline orchestration"""
 
 import logging
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -50,6 +51,9 @@ class IngestionPipeline:
         
         self.log_manager = LogManager(self.config.log.log_dir)
         
+        # Get force reprocess flag from environment
+        self.force_reprocess = os.getenv('FORCE_REPROCESS', 'false').lower() == 'true'
+        
         self.docling_client = DoclingClient(
             base_url=self.config.docling.base_url,
             timeout=self.config.docling.timeout,
@@ -96,6 +100,7 @@ class IngestionPipeline:
         )
         
         logger.info("Pipeline initialized successfully")
+        logger.info(f"  Force reprocess: {self.force_reprocess}")
     
     def health_check(self) -> Dict[str, bool]:
         """
@@ -210,7 +215,7 @@ class IngestionPipeline:
                 collection_name=self.config.qdrant.content_collection,
                 model_type="content",
                 qdrant_client=self.qdrant_uploader.client,
-                force_reprocess=False
+                force_reprocess=self.force_reprocess
             )
             
             # If None returned, file was skipped due to deduplication
