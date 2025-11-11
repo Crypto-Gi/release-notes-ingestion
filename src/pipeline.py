@@ -212,7 +212,12 @@ class IngestionPipeline:
             
             # Step 7: Generate filename embedding
             logger.info(f"[7/9] Generating filename embedding...")
-            filename_embedding = self.embedding_client.generate_filename_embedding(filename)
+            filename_embedding = self.embedding_client.generate_filename_embedding(
+                filename=filename,
+                file_content=file_content,
+                collection_name=self.config.qdrant.filename_collection,
+                log_to_phase3=True
+            )
             if not filename_embedding:
                 self.log_manager.add_failed_entry(filename, file_hash, "Filename embedding failed", "ollama")
                 return False

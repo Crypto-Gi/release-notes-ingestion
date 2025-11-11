@@ -129,23 +129,52 @@ class EmbeddingClient:
             logger.error(f"Error generating embedding: {e}")
             raise
     
-    def generate_filename_embedding(self, filename: str) -> Optional[List[float]]:
+    def generate_filename_embedding(
+        self,
+        filename: str,
+        file_content: Optional[bytes] = None,
+        collection_name: Optional[str] = None,
+        log_to_phase3: bool = False
+    ) -> Optional[List[float]]:
         """
         Generate embedding for filename
         
         Args:
             filename: Filename to embed
+            file_content: Optional file content for Phase 3 logging (for hash calculation)
+            collection_name: Optional collection name for Phase 3 logging
+            log_to_phase3: Enable Phase 3 logging (requires file_content and collection_name)
             
         Returns:
             Embedding vector (dimensions depend on model), or None if error
         """
         try:
+            import time
+            start_time = time.time()
+            
             embedding = self._generate_embedding(filename, self.filename_model)
             
             if embedding:
                 logger.debug(f"Generated filename embedding: {len(embedding)}D vector")
             
             logger.info(f"Generated filename embedding: {filename}")
+            
+            # Phase 3: Log filename embedding if enabled
+            if log_to_phase3 and self.enable_logging and self.log_manager and file_content and collection_name:
+                from .file_hasher import FileHasher
+                file_hash = FileHasher.hash_file_lightweight(file_content)
+                embedding_time = time.time() - start_time
+                
+                self.log_manager.log_embedding_success(
+                    filename=filename,
+                    md5_hash=file_hash,
+                    collection_name=collection_name,
+                    chunks_created=1,  # Filename is 1 "chunk"
+                    embedding_time=embedding_time,
+                    model_name=self.filename_model
+                )
+                logger.debug(f"✅ Logged filename embedding to Phase 3: {filename}")
+            
             return embedding
             
         except Exception as e:

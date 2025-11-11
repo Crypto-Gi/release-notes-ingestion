@@ -183,7 +183,12 @@ class MarkdownReprocessor:
             
             # Step 3: Generate filename embedding
             logger.info(f"[3/5] Generating filename embedding...")
-            filename_embedding = self.embedding_client.generate_filename_embedding(filename)
+            filename_embedding = self.embedding_client.generate_filename_embedding(
+                filename=filename,
+                file_content=markdown_content,
+                collection_name=self.config.qdrant.filename_collection,
+                log_to_phase3=True
+            )
             if not filename_embedding:
                 raise Exception("Filename embedding failed")
             
