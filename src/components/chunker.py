@@ -60,14 +60,11 @@ class SemanticChunker:
         # Initialize tokenizer for token counting
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
         
-        # Initialize text splitter
-        # Approximate: 1 token ≈ 4 characters
-        chunk_size_chars = chunk_size_tokens * 4
-        chunk_overlap_chars = chunk_overlap_tokens * 4
-        
+        # Initialize text splitter with token-based splitting
+        # Since we use length_function=self._count_tokens, chunk_size is measured in tokens
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size_chars,
-            chunk_overlap=chunk_overlap_chars,
+            chunk_size=chunk_size_tokens,
+            chunk_overlap=chunk_overlap_tokens,
             length_function=self._count_tokens,
             separators=[
                 "\n\n\n",  # Multiple blank lines
