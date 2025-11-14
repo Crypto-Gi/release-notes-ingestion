@@ -88,46 +88,74 @@ class EmbeddingClient:
         Returns:
             Embedding vector as list of floats, or None if error
         """
-        url = f"{self.base_url}/api/embed"
+        # Try old API endpoint first (/api/embed), fallback to new (/api/embeddings)
+        # Old endpoint is more reliable across Ollama versions
+        endpoints = ["/api/embed", "/api/embeddings"]
         
-        try:
-            # Build request payload with only specified parameters
-            payload = {
-                "model": model,
-                "input": text
-            }
+        for endpoint in endpoints:
+            url = f"{self.base_url}{endpoint}"
+            logger.debug(f"Trying endpoint: {endpoint}")
             
-            # Add optional parameters only if specified
-            if self.truncate is not None:
-                payload["truncate"] = self.truncate
-            
-            if self.keep_alive is not None:
-                payload["keep_alive"] = self.keep_alive
-            
-            if self.dimensions is not None:
-                payload["dimensions"] = self.dimensions
-            
-            response = requests.post(
-                url,
-                json=payload,
-                timeout=30
-            )
-            response.raise_for_status()
-            
-            data = response.json()
-            # New API returns embeddings array, get first one
-            embeddings = data.get('embeddings', [])
-            
-            if not embeddings or len(embeddings) == 0:
-                raise ValueError("No embeddings in response")
-            
-            embedding = embeddings[0]
-            logger.debug(f"Generated embedding: {len(embedding)}D vector")
-            return embedding
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error generating embedding: {e}")
-            raise
+            try:
+                # Build request payload based on endpoint
+                if endpoint == "/api/embed":
+                    # New API format
+                    payload = {
+                        "model": model,
+                        "input": text
+                    }
+                else:
+                    # Old API format (/api/embeddings)
+                    payload = {
+                        "model": model,
+                        "prompt": text
+                    }
+                
+                # Add optional parameters only if specified
+                if self.truncate is not None:
+                    payload["truncate"] = self.truncate
+                
+                if self.keep_alive is not None:
+                    payload["keep_alive"] = self.keep_alive
+                
+                if self.dimensions is not None:
+                    payload["dimensions"] = self.dimensions
+                
+                response = requests.post(
+                    url,
+                    json=payload,
+                    timeout=30
+                )
+                response.raise_for_status()
+                
+                data = response.json()
+                # Handle both API response formats:
+                # - Old API: {"embeddings": [[...]]}  (plural, nested array)
+                # - New API: {"embedding": [...]}     (singular, flat array)
+                embedding = data.get('embedding')  # Try new format first
+                if embedding is None:
+                    # Fall back to old format
+                    embeddings = data.get('embeddings', [])
+                    if not embeddings or len(embeddings) == 0:
+                        raise ValueError("No embeddings in response")
+                    embedding = embeddings[0]
+                
+                if not embedding or len(embedding) == 0:
+                    raise ValueError("Empty embedding vector in response")
+                
+                logger.debug(f"Generated embedding: {len(embedding)}D vector using {endpoint}")
+                return embedding
+                
+            except requests.exceptions.HTTPError as e:
+                # If 404, try next endpoint
+                if e.response.status_code == 404 and endpoint != endpoints[-1]:
+                    logger.debug(f"Endpoint {endpoint} not found, trying next...")
+                    continue
+                logger.error(f"Error generating embedding: {e}")
+                raise
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error generating embedding: {e}")
+                raise
     
     def generate_filename_embedding(
         self,
