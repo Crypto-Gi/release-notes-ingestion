@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Advanced Interactive Payload Index Creator for Qdrant Collections
+Qdrant Payload Index Management Tool
 
-This script provides comprehensive indexing options for Qdrant collections:
-- All 8 index types: Keyword, Integer, Float, Bool, Geo, DateTime, UUID, Text
-- Advanced options: is_tenant, is_principal, on_disk, phrase_matching, stopwords
-- Detailed explanations for each option
-- Interactive configuration
+Manages payload indexes for Qdrant collections with support for:
+- Index types: Keyword, Integer, Float, Bool, Geo, DateTime, UUID, Text
+- Operations: Create, Delete, Recreate
+- Advanced options: is_tenant, is_principal, on_disk, phrase_matching
 
 Usage:
     python scripts/create_payload_indexes_advanced.py
@@ -163,19 +162,41 @@ OPTIONS_INFO = {
 
 def print_section_header(title: str):
     """Print a formatted section header"""
-    print(f"\n{'=' * 80}")
-    print(f"{title}")
-    print(f"{'=' * 80}")
+    print(f"\n{title}")
+    print("=" * 40)
+
+
+def delete_index(
+    client: QdrantClient,
+    collection_name: str,
+    field_path: str
+) -> bool:
+    """Delete a payload index for a specific field"""
+    try:
+        logger.info(f"Deleting index on '{field_path}'...")
+        
+        client.delete_payload_index(
+            collection_name=collection_name,
+            field_name=field_path,
+            wait=True
+        )
+        
+        logger.info(f"Index deleted successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error deleting index: {e}")
+        return False
 
 
 def print_index_type_info(index_type: str):
     """Print detailed information about an index type"""
     info = INDEX_TYPES[index_type]
-    print(f"\n📋 {info['name']}")
+    print(f"\n {info['name']}")
     print(f"   {info['description']}")
     print(f"\n   Use Cases:")
     for use_case in info['use_cases']:
-        print(f"     • {use_case}")
+        print(f"     - {use_case}")
     
     if 'format' in info:
         print(f"\n   Format: {info['format']}")
@@ -190,7 +211,7 @@ def print_option_info(option: str):
         return
     
     info = OPTIONS_INFO[option]
-    print(f"\n   ℹ️  {info['name']}")
+    print(f"\n     {info['name']}")
     print(f"      {info['description']}")
     print(f"      When to use: {info['when_to_use']}")
     print(f"      Example: {info['example']}")
@@ -272,11 +293,7 @@ def extract_metadata_fields(payload: dict, prefix: str = "") -> list:
 
 def select_index_type(field: dict) -> Optional[str]:
     """Interactive index type selection"""
-    print(f"\n{'─' * 80}")
-    print(f"Field: {field['path']}")
-    print(f"Type: {field['type']}")
-    print(f"Sample: {field['sample']}")
-    print(f"{'─' * 80}")
+    print(f"\nField: {field['path']} ({field['type']})")
     
     # Get compatible index types
     compatible_types = [
@@ -289,20 +306,17 @@ def select_index_type(field: dict) -> Optional[str]:
     
     # Show suggested index type
     suggested = field['suggested_index']
-    print(f"\n💡 Suggested Index Type: {INDEX_TYPES[suggested]['name']}")
-    print(f"   {INDEX_TYPES[suggested]['description']}")
     
     # Show all compatible options
-    print(f"\nAvailable Index Types:")
+    print(f"\nIndex Types:")
     for idx, idx_type in enumerate(compatible_types, 1):
-        marker = "⭐" if idx_type == suggested else "  "
-        print(f"  {marker} {idx}. {INDEX_TYPES[idx_type]['name']}")
-        print(f"      {INDEX_TYPES[idx_type]['description']}")
+        marker = "*" if idx_type == suggested else " "
+        print(f"{marker}{idx}. {INDEX_TYPES[idx_type]['name']}")
     
-    print(f"\n  0. Skip this field")
+    print(f"0. Skip")
     
     while True:
-        choice = input(f"\nSelect index type (0-{len(compatible_types)}) [default: 1]: ").strip()
+        choice = input(f"\nSelect (0-{len(compatible_types)}) [1]: ").strip()
         
         if not choice:
             choice = '1'
@@ -317,7 +331,7 @@ def select_index_type(field: dict) -> Optional[str]:
         except ValueError:
             pass
         
-        print(f"❌ Invalid choice. Please enter 0-{len(compatible_types)}")
+        print(f" Invalid choice. Please enter 0-{len(compatible_types)}")
 
 
 def configure_index_options(index_type: str, field_path: str) -> dict:
@@ -328,38 +342,35 @@ def configure_index_options(index_type: str, field_path: str) -> dict:
     if not available_options:
         return options
     
-    print(f"\n📝 Configure Index Options for {index_type}:")
+    print(f"\n{index_type} Options:")
     
     # Special handling for text index
     if index_type == 'text':
-        print(f"\n   Text Index Configuration:")
-        
         # Tokenizer
-        print(f"\n   Tokenizer options:")
-        print(f"     1. word (default) - Split by word boundaries")
-        print(f"     2. whitespace - Split by whitespace only")
-        print(f"     3. prefix - Enable prefix search")
-        print(f"     4. multilingual - Support multiple languages")
+        print(f"\nTokenizer:")
+        print(f"1. word")
+        print(f"2. whitespace")
+        print(f"3. prefix")
+        print(f"4. multilingual")
         
-        tokenizer_choice = input(f"   Select tokenizer (1-4) [default: 1]: ").strip() or '1'
+        tokenizer_choice = input(f"Select (1-4) [1]: ").strip() or '1'
         tokenizers = ['word', 'whitespace', 'prefix', 'multilingual']
         options['tokenizer'] = tokenizers[int(tokenizer_choice) - 1] if tokenizer_choice in ['1','2','3','4'] else 'word'
         
         # Token length
-        options['min_token_len'] = int(input(f"   Min token length [default: 2]: ").strip() or '2')
-        options['max_token_len'] = int(input(f"   Max token length [default: 15]: ").strip() or '15')
+        options['min_token_len'] = int(input(f"Min token length [2]: ").strip() or '2')
+        options['max_token_len'] = int(input(f"Max token length [15]: ").strip() or '15')
         
         # Lowercase
-        lowercase = input(f"   Convert to lowercase? (y/n) [default: y]: ").strip().lower()
+        lowercase = input(f"Lowercase? (y/n) [y]: ").strip().lower()
         options['lowercase'] = lowercase != 'n'
         
         # Phrase matching
-        print_option_info('phrase_matching')
-        phrase = input(f"   Enable phrase matching? (y/n) [default: n]: ").strip().lower()
+        phrase = input(f"Phrase matching? (y/n) [n]: ").strip().lower()
         options['phrase_matching'] = phrase == 'y'
         
         # On disk
-        on_disk = input(f"   Store on disk? (y/n) [default: n]: ").strip().lower()
+        on_disk = input(f"On disk? (y/n) [n]: ").strip().lower()
         options['on_disk'] = on_disk == 'y'
         
         return options
@@ -369,17 +380,15 @@ def configure_index_options(index_type: str, field_path: str) -> dict:
         if option not in OPTIONS_INFO:
             continue
         
-        print_option_info(option)
-        
         # Special handling for specific options
         if option == 'is_tenant' and 'filename' in field_path.lower():
-            response = input(f"   Enable {option}? (y/n) [recommended: y]: ").strip().lower()
+            response = input(f"{option}? (y/n) [y]: ").strip().lower()
             options[option] = response != 'n'
         elif option == 'is_principal':
-            response = input(f"   Enable {option}? (y/n) [default: n]: ").strip().lower()
+            response = input(f"{option}? (y/n) [n]: ").strip().lower()
             options[option] = response == 'y'
         elif option == 'on_disk':
-            response = input(f"   Enable {option}? (y/n) [default: n]: ").strip().lower()
+            response = input(f"{option}? (y/n) [n]: ").strip().lower()
             options[option] = response == 'y'
     
     return options
@@ -390,11 +399,17 @@ def create_index(
     collection_name: str,
     field_path: str,
     index_type: str,
-    options: dict
+    options: dict,
+    existing_indexes: dict = None
 ) -> bool:
-    """Create a payload index with specified configuration"""
+    """Create a payload index with specified configuration. Deletes existing index first if present."""
     try:
-        logger.info(f"\nCreating {index_type} index on '{field_path}'...")
+        # Check if index already exists and delete it first
+        if existing_indexes and field_path in existing_indexes:
+            logger.info(f"\nExisting index found on '{field_path}'. Deleting...")
+            delete_index(client, collection_name, field_path)
+        
+        logger.info(f"Creating {index_type} index on '{field_path}'...")
         
         # Build field schema based on index type
         if index_type == 'keyword':
@@ -463,39 +478,25 @@ def create_index(
             field_schema=field_schema
         )
         
-        # Show configuration summary
-        logger.info(f"✅ Index created successfully!")
-        logger.info(f"   Type: {index_type}")
-        if options:
-            logger.info(f"   Options: {', '.join(f'{k}={v}' for k, v in options.items())}")
-        
         return True
         
     except Exception as e:
-        logger.error(f"❌ Error creating index: {e}")
+        logger.error(f" Error creating index: {e}")
         return False
 
 
 def process_single_field(client: QdrantClient, collection_name: str, fields: list, existing_indexes: dict) -> bool:
     """Process a single field selection and indexing"""
     # Display available fields
-    print(f"\nAvailable Fields:")
-    print("─" * 80)
+    print(f"\nFields:")
     for idx, field in enumerate(fields, 1):
-        suggested = INDEX_TYPES[field['suggested_index']]['name']
-        
-        # Check if field already has an index
-        if field.get('has_index', False):
-            # Show with indicator that it's already indexed
-            print(f"  {idx}. {field['path']:<30} ({field['type']:<10}) → {suggested} ✓ (indexed)")
-        else:
-            print(f"  {idx}. {field['path']:<30} ({field['type']:<10}) → {suggested}")
-    print("─" * 80)
-    print(f"  0. Go back to collection selection")
+        status = " [INDEXED]" if field.get('has_index', False) else ""
+        print(f"{idx}. {field['path']}{status}")
+    print(f"0. Return")
     
     # Ask user to select a field
     while True:
-        choice = input(f"\nSelect a field to index (0-{len(fields)}): ").strip()
+        choice = input(f"\nSelect (0-{len(fields)}): ").strip()
         
         if choice == '0':
             return False  # Go back to collection selection
@@ -508,26 +509,45 @@ def process_single_field(client: QdrantClient, collection_name: str, fields: lis
         except ValueError:
             pass
         
-        print(f"❌ Invalid choice. Please enter 0-{len(fields)}")
+        print(f" Invalid choice. Please enter 0-{len(fields)}")
+    
+    # Check if field already has an index
+    if field.get('has_index', False):
+        print(f"\n{field['path']} has index: {existing_indexes[field['path']]['type']}")
+        print("1. Recreate")
+        print("2. Delete")
+        print("0. Cancel")
+        
+        action = input("\nSelect (0-2): ").strip()
+        
+        if action == '0':
+            return True
+        elif action == '2':
+            if delete_index(client, collection_name, field['path']):
+                print(f"\nIndex deleted for {field['path']}")
+            else:
+                print(f"\nFailed to delete index for {field['path']}")
+            return True
+        elif action != '1':
+            print("Invalid choice")
+            return True
+        # If action == '1', continue to recreate
     
     # Select index type
     index_type = select_index_type(field)
     
     if not index_type:
-        print(f"⏭️  Skipping {field['path']}")
+        print(f"Skipping {field['path']}")
         return True  # Continue with same collection
-    
-    # Show detailed info about selected index type
-    print_index_type_info(index_type)
     
     # Configure options
     options = configure_index_options(index_type, field['path'])
     
-    # Create index
-    if create_index(client, collection_name, field['path'], index_type, options):
-        print(f"\n✅ Index created successfully for {field['path']}")
+    # Create index (will auto-delete if exists)
+    if create_index(client, collection_name, field['path'], index_type, options, existing_indexes):
+        print(f"\nIndex created successfully for {field['path']}")
     else:
-        print(f"\n❌ Failed to create index for {field['path']}")
+        print(f"\nFailed to create index for {field['path']}")
     
     return True  # Continue with same collection
 
@@ -626,20 +646,20 @@ def create_manual_index(client: QdrantClient, collection_name: str, existing_ind
     field_name = input("\nField name: ").strip()
     
     if not field_name:
-        logger.error("❌ Field name cannot be empty")
+        logger.error(" Field name cannot be empty")
         return
     
     # Check if already indexed
     if field_name in existing_indexes:
-        logger.warning(f"⚠️  Field '{field_name}' already has an index: {existing_indexes[field_name]['type']}")
+        logger.warning(f"  Field '{field_name}' already has an index: {existing_indexes[field_name]['type']}")
         choice = input("Overwrite? (y/n) [n]: ").strip().lower()
         if choice != 'y':
             return
     
     # Select index type
-    print(f"\n{'─' * 80}")
+    print(f"\n{'-' * 80}")
     print("SELECT INDEX TYPE:")
-    print("─" * 80)
+    print("-" * 80)
     print("  1. Keyword   - Exact string matching (IDs, hashes, filenames)")
     print("  2. Integer   - Whole numbers (counts, page numbers)")
     print("  3. Float     - Decimal numbers (scores, ratings)")
@@ -663,14 +683,14 @@ def create_manual_index(client: QdrantClient, collection_name: str, existing_ind
         return
     
     if type_choice not in type_map:
-        logger.error("❌ Invalid choice")
+        logger.error(" Invalid choice")
         return
     
     type_name, schema_type = type_map[type_choice]
     
     # Create the index
     try:
-        print(f"\n🔄 Creating {type_name} index for '{field_name}'...")
+        print(f"\n Creating {type_name} index for '{field_name}'...")
         
         if type_choice == '6':  # Text index
             # Text index requires TextIndexParams
@@ -694,12 +714,12 @@ def create_manual_index(client: QdrantClient, collection_name: str, existing_ind
                 wait=True
             )
         
-        logger.info(f"✅ Index created successfully!")
+        logger.info(f" Index created successfully!")
         logger.info(f"   Field: {field_name}")
         logger.info(f"   Type: {type_name}")
         
     except Exception as e:
-        logger.error(f"❌ Failed to create index: {e}")
+        logger.error(f" Failed to create index: {e}")
 
 
 def process_collection(client: QdrantClient, collection_name: str, collection_label: str, all_collections: list):
@@ -708,7 +728,7 @@ def process_collection(client: QdrantClient, collection_name: str, collection_la
     
     # Check if collection exists
     if not any(c.name == collection_name for c in all_collections):
-        logger.warning(f"⚠️  Collection '{collection_name}' not found.")
+        logger.warning(f"  Collection '{collection_name}' not found.")
         input("\nPress Enter to continue...")
         return
     
@@ -722,43 +742,20 @@ def process_collection(client: QdrantClient, collection_name: str, collection_la
     # Show existing indexes
     existing_indexes = get_existing_indexes(client, collection_name)
     if existing_indexes:
-        print(f"\n📋 Existing Payload Indexes:")
-        print("─" * 80)
+        print(f"\nIndexes:")
         for field_name, index_info in existing_indexes.items():
             index_type = index_info['type']
-            options = index_info['options']
-            
-            # Format options nicely
-            if options:
-                # For text indexes, show tokenizer info prominently
-                if index_type == 'text' and 'tokenizer' in options:
-                    opts_parts = [f"tokenizer={options['tokenizer']}"]
-                    if 'min_token_len' in options:
-                        opts_parts.append(f"min={options['min_token_len']}")
-                    if 'max_token_len' in options:
-                        opts_parts.append(f"max={options['max_token_len']}")
-                    if 'lowercase' in options:
-                        opts_parts.append(f"lowercase={options['lowercase']}")
-                    opts_str = ", ".join(opts_parts)
-                else:
-                    opts_str = ", ".join(f"{k}={v}" for k, v in options.items())
-                
-                print(f"  ✓ {field_name:<30} → {index_type:<10} ({opts_str})")
-            else:
-                print(f"  ✓ {field_name:<30} → {index_type}")
-        print("─" * 80)
+            print(f"  {field_name} -> {index_type}")
     else:
-        print(f"\n📋 Existing Payload Indexes: None")
+        print(f"\nIndexes: None")
     
     # Check if collection is empty
     if info.points_count == 0:
-        logger.warning(f"⚠️  Collection is empty. You can still create indexes for future data.")
+        logger.warning(f"Collection is empty")
         
         # Allow manual index creation for empty collections
-        print(f"\n{'─' * 80}")
-        print("OPTIONS:")
-        print("  1. Create index manually (specify field name and type)")
-        print("  0. Go back")
+        print(f"\n1. Create index manually")
+        print("0. Return")
         
         choice = input(f"\nSelect option (0-1): ").strip()
         
@@ -772,10 +769,10 @@ def process_collection(client: QdrantClient, collection_name: str, collection_la
     sample_payload = get_sample_payload(client, collection_name)
     
     if not sample_payload:
-        logger.warning(f"⚠️  Could not get sample payload.")
+        logger.warning(f"  Could not get sample payload.")
         
         # Allow manual index creation even without sample
-        print(f"\n{'─' * 80}")
+        print(f"\n{'-' * 80}")
         print("OPTIONS:")
         print("  1. Create index manually (specify field name and type)")
         print("  0. Go back")
@@ -847,8 +844,8 @@ def process_collection(client: QdrantClient, collection_name: str, collection_la
                 field['has_index'] = False
         
         # Ask if user wants to index another field in this collection
-        print(f"\n{'─' * 80}")
-        choice = input(f"Index another field in '{collection_name}'? (y/n) [y]: ").strip().lower()
+        print(f"\n{'-' * 80}")
+        choice = input(f"Continue with another field in '{collection_name}'? (y/n) [y]: ").strip().lower()
         
         if choice == 'n':
             break
@@ -868,7 +865,7 @@ def main():
     filename_collection = os.getenv("QDRANT_FILENAME_COLLECTION", "filenames")
     content_collection = os.getenv("QDRANT_CONTENT_COLLECTION", "content")
     
-    print_section_header("QDRANT ADVANCED PAYLOAD INDEX CREATOR")
+    print_section_header("QDRANT PAYLOAD INDEX MANAGER")
     print(f"\nQdrant Server: {qdrant_host}:{qdrant_port}")
     print(f"Filename Collection: {filename_collection}")
     print(f"Content Collection: {content_collection}")
@@ -902,9 +899,9 @@ def main():
             client = QdrantClient(host=qdrant_host, port=qdrant_port)
         
         collections = client.get_collections()
-        logger.info(f"✅ Connected! Found {len(collections.collections)} collections\n")
+        logger.info(f" Connected! Found {len(collections.collections)} collections\n")
     except Exception as e:
-        logger.error(f"❌ Failed to connect to Qdrant: {e}")
+        logger.error(f" Failed to connect to Qdrant: {e}")
         return 1
     
     # Available collections
@@ -915,26 +912,22 @@ def main():
     
     # Main loop: collection selection
     while True:
-        print("=" * 80)
-        print("SELECT COLLECTION TO INDEX")
-        print("=" * 80)
-        print(f"\n  1. {filename_collection} (Filename Collection)")
-        print(f"  2. {content_collection} (Content Collection)")
-        print(f"  0. Exit")
+        print("\nCollections:")
+        print(f"1. {filename_collection}")
+        print(f"2. {content_collection}")
+        print(f"0. Exit")
         
-        choice = input(f"\nSelect collection (0-2): ").strip()
+        choice = input(f"\nSelect (0-2): ").strip()
         
         if choice == '0':
-            print("\n" + "=" * 80)
-            print("🎉 INDEX CREATION SESSION COMPLETE!")
-            print("=" * 80)
+            print("\nSession complete")
             break
         
         if choice in collections_map:
             collection_name, collection_label = collections_map[choice]
             process_collection(client, collection_name, collection_label, collections.collections)
         else:
-            print(f"❌ Invalid choice. Please enter 0-2")
+            print(f" Invalid choice. Please enter 0-2")
     
     return 0
 

@@ -51,9 +51,11 @@ def inspect_collection(client: QdrantClient, collection_name: str, sample_size: 
         
         # Display basic info
         logger.info(f"\n📊 Collection Statistics:")
-        logger.info(f"  Points Count: {collection_info.points_count:,}")
-        logger.info(f"  Vectors Count: {collection_info.vectors_count:,}")
-        logger.info(f"  Indexed Vectors: {collection_info.indexed_vectors_count:,}")
+        logger.info(f"  Points Count: {collection_info.points_count}")
+        vectors_count = collection_info.vectors_count if collection_info.vectors_count is not None else 0
+        indexed_vectors = collection_info.indexed_vectors_count if collection_info.indexed_vectors_count is not None else 0
+        logger.info(f"  Vectors Count: {vectors_count}")
+        logger.info(f"  Indexed Vectors: {indexed_vectors}")
         logger.info(f"  Status: {collection_info.status}")
         
         # Display vector configuration

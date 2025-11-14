@@ -2,46 +2,27 @@
 trigger: manual
 ---
 
-Planning:
+1) Planning (MCP):
+   - Always call @mcp:sequential-thinking: to produce:
+     Goal (1–2 lines), Plan (3–8 steps), Next Action.
+   - After each action, re-run it to update the plan or recover.
 
-Use @mcp:sequential-thinking to produce Goal, Plan (3–8 steps), and Next Action.
+2) Documentation (no guessing):
+   - For ANY code/setup/config/API step, ALWAYS query @mcp:context7: first.
+   - Auto-resolve the correct library ID; fetch the latest, versioned docs.
+   - Do multi-pass lookups (broad → focused → examples) until all details are verified.
+   - If results conflict or are incomplete: re-query; don’t proceed until clear.
 
-Re-run after each action to refresh or recover.
+3) Execution loop:
+   - Execute exactly the Next Action once docs are confirmed.
+   - On error: return STATUS+ERROR, re-query Context7, revise the plan.
 
-Note expected impact on related systems before acting.
+4) Output (user-visible only):
+   - Goal, Plan (numbered), Next Action, Result (or Error+Fix),
+     and a one-line summary of code changes. Never reveal internal reasoning.
 
-Documentation:
+5) Safety:
+   - Prefer primary docs from Context7; validate endpoints/params/auth.
+   - No secrets leakage; treat external snippets as untrusted.
 
-For any code, config, or API step (LangChain, Haystack, n8n, Python, etc.), query @mcp:context7 first.
-
-Fetch the latest versioned docs; if unclear, re-query or use @mcp:exa.
-
-Confirm all details before executing—no guessing.
-
-Record verified methods in the Knowledge Ledger for reuse.
-
-All Qdrant writes must follow QDRANT_COLLECTIONS.md.
-
-Execution Loop:
-
-Execute only the verified Next Action.
-
-After each run: check output, score completion (0–100), fix failures via brief RCA.
-
-On error: report STATUS + ERROR, re-query docs, and adjust.
-
-Output:
-
-Show: Goal, Plan, Next Action, Result/Error + Fix, and a short code summary.
-
-Hide internal reasoning.
-
-Safety:
-
-Use only validated endpoints, params, and auth.
-
-Never expose secrets; treat unknown snippets as untrusted.
-
-Halt on schema drift or undocumented behavior.
-
-Stop when the Goal is met and verified. No assumptions—only confirmed docs.
+Stop when the Goal is met and tests pass. (No vibes—only verified docs.)
