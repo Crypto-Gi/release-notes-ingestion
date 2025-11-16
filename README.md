@@ -465,8 +465,6 @@ FORCE_REPROCESS=true python scripts/retry_failed_files.py
 - Service was unavailable
 - Want to clean up failed.json
 
-**See:** [scripts/README_RETRY.md](scripts/README_RETRY.md) for complete documentation
-
 ---
 
 ### 4. Setup Collections (`scripts/setup_qdrant_collections.py`)
@@ -789,15 +787,16 @@ QDRANT_CONTENT_ON_DISK_PAYLOAD=true
 
 ### Core Documentation
 - **[env.example](env.example)** - Complete configuration reference
-- **[PHASE_3_PROGRESS.md](PHASE_3_PROGRESS.md)** - Phase 3 deduplication details
+- **[docs/SYSTEM_SPEC.md](docs/SYSTEM_SPEC.md)** - System-level architecture and implementation spec
+- **[docs/PHASE_3_ENHANCEMENTS.md](docs/PHASE_3_ENHANCEMENTS.md)** - Phase 3 deduplication and logging design
 - **[VERSION](VERSION)** - Current version
-- **[scripts/README_RETRY.md](scripts/README_RETRY.md)** - Retry script documentation
 
 ### Guides
 - **[docs/QDRANT.md](docs/QDRANT.md)** - Qdrant setup and schema
 - **[docs/INDEXING_GUIDE.md](docs/INDEXING_GUIDE.md)** - Complete indexing guide
-- **[docs/REFERENCE.md](docs/REFERENCE.md)** - Technical reference
+- **[docs/DOCKER.md](docs/DOCKER.md)** - Docker deployment and operations
 - **[docs/CHANGELOG.md](docs/CHANGELOG.md)** - Version history
+- **[docs/archived/REFERENCE_legacy.md](docs/archived/REFERENCE_legacy.md)** - Legacy technical reference
 
 ### API Documentation
 - **FastAPI Docs** - http://localhost:8060/docs (when running)

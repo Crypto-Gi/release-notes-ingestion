@@ -835,8 +835,8 @@ python scripts/reprocess_from_markdown.py
 - [ ] Test log file deletion recovery
 
 ### **Documentation**
-- [ ] Update README.md with Phase 3 info
-- [ ] Update REFERENCE.md with new log formats
+- [x] Update README.md with Phase 3 info
+- [x] Update SYSTEM_SPEC.md with new log formats
 - [ ] Update API documentation
 - [ ] Create migration guide (if needed)
 
@@ -872,9 +872,10 @@ python scripts/reprocess_from_markdown.py
 
 ## 📚 Related Documentation
 
-- [REFERENCE.md](REFERENCE.md) - Technical reference
+- [SYSTEM_SPEC.md](SYSTEM_SPEC.md) - System specification and architecture
 - [QDRANT.md](QDRANT.md) - Qdrant configuration
 - [CHANGELOG.md](CHANGELOG.md) - Version history
+- [archived/REFERENCE_legacy.md](archived/REFERENCE_legacy.md) - Legacy technical reference
 
 ---
 
