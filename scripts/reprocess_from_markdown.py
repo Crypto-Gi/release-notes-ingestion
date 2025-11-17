@@ -58,25 +58,43 @@ class MarkdownReprocessor:
         # Initialize LogManager first (needed for Phase 3)
         self.log_manager = LogManager(log_dir=self.config.log.log_dir)
         
-        # Use models from config (which already supports OLLAMA_FILENAME_MODEL env var)
-        filename_model = self.config.ollama.filename_model
-        content_model = self.config.ollama.content_model
+        # Initialize embedding client based on backend selection
+        # Use universal batch size for all backends
+        batch_size = self.config.embedding.batch_size
         
-        logger.info("Using filename embedding model: %s", filename_model)
-        logger.info("Using content embedding model: %s", content_model)
-
-        self.embedding_client = EmbeddingClient(
-            host=self.config.ollama.host,
-            port=self.config.ollama.port,
-            filename_model=filename_model,
-            content_model=content_model,
-            truncate=self.config.ollama.truncate,
-            keep_alive=self.config.ollama.keep_alive,
-            dimensions=self.config.ollama.dimensions,
-            log_manager=self.log_manager,
-            enable_deduplication=True,
-            enable_logging=True
-        )
+        if self.config.embedding.backend == "ollama":
+            logger.info("Using Ollama embedding backend")
+            self.embedding_client = EmbeddingClient(
+                backend_type="ollama",
+                ollama_host=self.config.embedding.ollama.host,
+                ollama_port=self.config.embedding.ollama.port,
+                ollama_truncate=self.config.embedding.ollama.truncate,
+                ollama_keep_alive=self.config.embedding.ollama.keep_alive,
+                ollama_dimensions=self.config.embedding.ollama.dimensions,
+                ollama_batch_size=batch_size,
+                filename_model=self.config.embedding.ollama.filename_model,
+                content_model=self.config.embedding.ollama.content_model,
+                log_manager=self.log_manager,
+                enable_deduplication=True,
+                enable_logging=True
+            )
+        elif self.config.embedding.backend == "gemini":
+            logger.info("Using Gemini embedding backend")
+            self.embedding_client = EmbeddingClient(
+                backend_type="gemini",
+                gemini_api_key=self.config.embedding.gemini.api_key,
+                gemini_model=self.config.embedding.gemini.model,
+                gemini_task_type=self.config.embedding.gemini.task_type,
+                gemini_dimensions=self.config.embedding.gemini.dimensions,
+                gemini_batch_size=batch_size,
+                filename_model=self.config.embedding.gemini.model,
+                content_model=self.config.embedding.gemini.model,
+                log_manager=self.log_manager,
+                enable_deduplication=True,
+                enable_logging=True
+            )
+        else:
+            raise ValueError(f"Unknown embedding backend: {self.config.embedding.backend}")
         
         self.qdrant_uploader = QdrantUploader(
             host=self.config.qdrant.host,
@@ -89,7 +107,7 @@ class MarkdownReprocessor:
             content_collection=self.config.qdrant.content_collection,
             log_manager=self.log_manager,
             enable_logging=True,
-            batch_size=int(os.getenv('QDRANT_BATCH_SIZE', '100'))
+            batch_size=batch_size  # Use same batch size as embedding backend
         )
         
         self.chunker = SemanticChunker(

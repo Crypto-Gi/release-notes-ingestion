@@ -88,25 +88,30 @@ The system ingests PDF/Word release notes and related documents from **Cloudflar
 - `src/pipeline.py`
   - Defines `IngestionPipeline` orchestrator and CLI entrypoint.
 - `src/components/`
-  - `config.py` – configuration models + `.env` loader.
+  - `config.py` – configuration models + `.env` loader with multi-backend support.
   - `r2_client.py` – R2/S3 operations.
   - `file_hasher.py` – hashing utilities (MD5 + xxHash64).
   - `log_manager.py` – JSON log management and Phase 3 helpers.
   - `docling_client.py` – Docling REST client + health checks.
   - `markdown_storage.py` – mapping source paths to markdown paths and uploading.
   - `chunker.py` – markdown → semantic chunks.
-  - `embedding_client.py` – Ollama embedding client + dedup-aware batch calls.
+  - `embedding_client.py` – **Multi-backend dispatcher** (Ollama/Gemini) + dedup-aware batch calls.
+  - `embedding_backend.py` – Abstract base class for embedding backends.
+  - `backends/` – Embedding backend implementations:
+    - `ollama_backend.py` – Ollama local server backend.
+    - `gemini_backend.py` – Google Gemini API backend with native batch support.
   - `qdrant_uploader.py` – Qdrant client and collection-specific uploads.
 - `api/main.py`
   - FastAPI app wrapping `IngestionPipeline` for remote orchestration.
 - `scripts/`
   - `setup_qdrant_collections.py` – collection creation per `.env`.
   - `create_payload_indexes_advanced.py` – interactive payload index management.
-  - `reprocess_from_markdown.py` – pipeline variant starting from markdown.
+  - `convert_to_markdown.py` – **NEW: Pipeline A** (source → markdown only, no embedding).
+  - `reprocess_from_markdown.py` – **Pipeline B** (markdown → embeddings → Qdrant).
   - `retry_failed_files.py` – reuse logs to re-run failed items.
   - Additional diagnostic scripts (indexes, R2 markdown, collections).
 - `docs/`
-  - `REFERENCE.md`, `QDRANT.md`, `INDEXING_GUIDE.md`, `DOCKER.md`, `PHASE_3_ENHANCEMENTS.md`, `CHANGELOG.md`, `SYSTEM_SPEC.md` (this file).
+  - `SYSTEM_SPEC.md` (this file), `QDRANT.md`, `INDEXING_GUIDE.md`, `DOCKER.md`, `PHASE_3_ENHANCEMENTS.md`, `CHANGELOG.md`, `archived/REFERENCE_legacy.md`.
 
 ---
 
@@ -166,18 +171,39 @@ High-level steps:
    - Aggregate `total_files`, `new_files`, `processed`, `failed`, `skipped`,
      `duration_seconds`, `files_per_second` and return a summary dict.
 
-### 4.2 Reprocess-from-Markdown Workflow
+### 4.2 Markdown-Only Conversion Workflow (Pipeline A)
+
+Implemented in `scripts/convert_to_markdown.py`.
+
+- **NEW**: Converts source files to markdown **only** – stops before embedding/Qdrant.
+- Workflow:
+  1. List R2 source files
+  2. Download source file
+  3. Compute xxHash64
+  4. Check logs for deduplication
+  5. Convert via Docling (PDF/Word → Markdown)
+  6. Upload markdown to R2
+  7. **STOP** (no chunking, embedding, or Qdrant)
+- Primary use cases:
+  - Pre-process documents for later embedding.
+  - Separate conversion from embedding (two-stage workflow).
+  - Create markdown archive without vector storage.
+- Complements Pipeline B (reprocess_from_markdown.py).
+
+### 4.3 Reprocess-from-Markdown Workflow (Pipeline B)
 
 Implemented in `scripts/reprocess_from_markdown.py`.
 
 - Starts from **markdown files** in `R2_MARKDOWN_PREFIX` instead of raw PDFs/Word.
 - Skips Docling conversion entirely; the rest of the flow (chunking, embedding, Qdrant upload, dedup, logging) is similar to the main pipeline.
+- **Multi-backend support**: Uses `EMBEDDING_BACKEND` from `.env` (Ollama or Gemini).
 - Primary use cases:
   - Rebuilding Qdrant collections.
-  - Switching embedding models.
+  - Switching embedding models or backends.
   - Running when Docling is unavailable.
+  - Processing markdown from Pipeline A.
 
-### 4.3 Retry-Failed-Files Workflow
+### 4.4 Retry-Failed-Files Workflow
 
 Implemented in `scripts/retry_failed_files.py`.
 
@@ -185,7 +211,7 @@ Implemented in `scripts/retry_failed_files.py`.
 - Supports options like `--dry-run` and `FORCE_REPROCESS=true` (via env) to control behavior.
 - After successful reprocessing, removes entries from `failed.json`.
 
-### 4.4 API-Orchestrated Workflow (n8n / External Systems)
+### 4.5 API-Orchestrated Workflow (n8n / External Systems)
 
 - `api/main.py` exposes endpoints for remote orchestration.
 - `POST /api/pipeline/start`:
@@ -355,26 +381,49 @@ Element-type detection is based on markdown patterns (tables, images, lists).
 
 Responsibilities:
 
-- Interface with **Ollama** embedding API.
+- **Multi-backend dispatcher** for embedding operations.
+- Supports **Ollama** (local) and **Google Gemini** (cloud) backends.
 - Manage model selection, batch sizes, dedup, and logging hooks.
+- Preserve Phase 3 deduplication and logging across all backends.
 
 Key behaviors:
 
-- `health_check()` – verifies Ollama server availability.
+- `__init__(backend_type="ollama"|"gemini", ...)` – initializes selected backend.
+- `health_check()` – verifies backend service availability.
 - `generate_filename_embedding(filename, file_content, collection_name, log_to_phase3=True)`
-  - Encodes filename context (and optionally small content) using `OLLAMA_FILENAME_MODEL` (e.g. `granite-embedding:30m`, 384D).
-- `generate_batch_embeddings_with_dedup(...)` (per docs and pipeline usage):
+  - Encodes filename context using configured model.
+  - Ollama: `granite-embedding:30m` (384D).
+  - Gemini: `gemini-embedding-001` (768D default, configurable 256-768).
+- `generate_batch_embeddings(texts, model_type="content")`
+  - Delegates to backend implementation.
+  - **Ollama**: Sequential embedding generation.
+  - **Gemini**: Native batch API (single request for all texts).
+- `generate_batch_embeddings_with_dedup(...)` (Phase 3):
   - Accepts list of text chunks.
-  - Uses `LogManager` and Qdrant client to check if embeddings already exist for a file.
+  - Uses `LogManager` and Qdrant client to check if embeddings already exist.
   - Returns `None` if dedup decides to skip embedding.
-  - Otherwise returns a list of vectors (e.g. 1024D for `bge-m3`).
+  - Otherwise returns list of vectors via selected backend.
 
-Ollama API usage (from docs):
+### 5.9 Embedding Backends
 
-- HTTP `POST /api/embeddings` with JSON body:
-  - `{"model": "bge-m3", "prompt": "text to embed"}`.
+#### 5.9.1 Ollama Backend (`src/components/backends/ollama_backend.py`)
 
-### 5.9 Qdrant Uploader (`src/components/qdrant_uploader.py`)
+- Local Ollama server via HTTP API.
+- Dual endpoint support (`/api/embed`, `/api/embeddings`) for version compatibility.
+- Sequential batch processing (one request per text).
+- Retry logic with exponential backoff.
+- Models: `granite-embedding:30m` (384D), `bge-m3` (1024D).
+
+#### 5.9.2 Gemini Backend (`src/components/backends/gemini_backend.py`)
+
+- Google Gemini API via `google-generativeai` SDK.
+- **Native batch support**: Single API call for multiple texts (efficient!).
+- Configurable task types: `RETRIEVAL_DOCUMENT`, `RETRIEVAL_QUERY`, `SEMANTIC_SIMILARITY`, etc.
+- Configurable dimensions: 256-768 (default: 768).
+- Automatic fallback to sequential on batch failure.
+- Model: `gemini-embedding-001`.
+
+### 5.10 Qdrant Uploader (`src/components/qdrant_uploader.py`)
 
 Responsibilities:
 
@@ -561,6 +610,12 @@ Reference: `env.example`, `docs/QDRANT.md`, `README.md`.
 
 ### 8.1 Core Environment Variables
 
+#### Embedding Backend Selection
+
+- `EMBEDDING_BACKEND` (default `ollama`)
+  - Values: `ollama` or `gemini`
+  - Controls which embedding backend to use across all pipelines.
+
 #### Cloudflare R2
 
 - `R2_ENDPOINT`
@@ -582,13 +637,22 @@ Reference: `env.example`, `docs/QDRANT.md`, `README.md`.
 - `QDRANT_CONTENT_COLLECTION`
 - Vector and index settings (`QDRANT_FILENAME_VECTOR_SIZE`, etc.) as detailed in `docs/QDRANT.md`.
 
-#### Ollama
+#### Ollama (if `EMBEDDING_BACKEND=ollama`)
 
 - `OLLAMA_HOST`
 - `OLLAMA_PORT` (default `11434`)
 - `OLLAMA_FILENAME_MODEL` (default `granite-embedding:30m`)
 - `OLLAMA_CONTENT_MODEL` (default `bge-m3`)
 - Optional: `OLLAMA_TRUNCATE`, `OLLAMA_KEEP_ALIVE`, `OLLAMA_DIMENSIONS`.
+
+#### Google Gemini (if `EMBEDDING_BACKEND=gemini`)
+
+- `GEMINI_API_KEY` (required)
+  - Get from: https://ai.google.dev/
+- `GEMINI_MODEL` (default `gemini-embedding-001`)
+- `GEMINI_TASK_TYPE` (default `RETRIEVAL_DOCUMENT`)
+  - Options: `RETRIEVAL_DOCUMENT`, `RETRIEVAL_QUERY`, `SEMANTIC_SIMILARITY`, `CLASSIFICATION`, `CLUSTERING`, `QUESTION_ANSWERING`, `FACT_VERIFICATION`, `CODE_RETRIEVAL_QUERY`
+- `GEMINI_DIMENSIONS` (default `768`, range: 256-768)
 
 #### Docling
 
@@ -629,6 +693,8 @@ From `requirements.txt`:
 - Core:
   - `boto3`, `qdrant-client`, `langchain`, `langchain-text-splitters`, `tiktoken`,
     `requests`, `python-dotenv`, `pydantic`, `tenacity`, `xxhash`.
+- Embedding Backends:
+  - `google-generativeai>=0.3.0` (for Gemini support).
 - API:
   - `fastapi`, `uvicorn`.
 - Dev/testing:

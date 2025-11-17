@@ -42,17 +42,10 @@ class QdrantConfig(BaseModel):
 
 class OllamaConfig(BaseModel):
     """Ollama configuration"""
-    host: str = Field(..., description="Ollama host")
-    port: int = Field(default=11434, description="Ollama port")
-    filename_model: str = Field(
-        default="granite-embedding:30m",
-        description="Filename embedding model"
-    )
-    content_model: str = Field(
-        default="bge-m3",
-        description="Content embedding model"
-    )
-    # Optional embedding parameters (use Ollama defaults if None)
+    host: str = Field(..., description="Ollama server host")
+    port: int = Field(default=11434, description="Ollama server port")
+    filename_model: str = Field(default="granite-embedding:30m", description="Model for filename embeddings")
+    content_model: str = Field(default="bge-m3", description="Model for content embeddings")
     truncate: Optional[bool] = Field(default=None, description="Truncate input to fit context")
     keep_alive: Optional[str] = Field(default=None, description="Model memory retention duration")
     dimensions: Optional[int] = Field(default=None, description="Override embedding dimensions")
@@ -87,11 +80,30 @@ class ProcessingConfig(BaseModel):
     )
 
 
+class GeminiConfig(BaseModel):
+    """Google Gemini configuration"""
+    api_key: str = Field(..., description="Google Gemini API key")
+    model: str = Field(default="gemini-embedding-001", description="Gemini model name")
+    task_type: str = Field(
+        default="RETRIEVAL_DOCUMENT",
+        description="Task type for embeddings (RETRIEVAL_DOCUMENT, RETRIEVAL_QUERY, etc.)"
+    )
+    dimensions: int = Field(default=768, description="Output dimensions (256-768)")
+
+
+class EmbeddingConfig(BaseModel):
+    """Embedding backend configuration"""
+    backend: str = Field(default="ollama", description="Embedding backend (ollama or gemini)")
+    batch_size: int = Field(default=100, description="Universal batch size for embeddings and Qdrant")
+    ollama: Optional[OllamaConfig] = None
+    gemini: Optional[GeminiConfig] = None
+
+
 class PipelineConfig(BaseModel):
     """Complete pipeline configuration"""
     r2: R2Config
     qdrant: QdrantConfig
-    ollama: OllamaConfig
+    embedding: EmbeddingConfig
     docling: DoclingConfig
     chunking: ChunkingConfig
     log: LogConfig
@@ -159,15 +171,34 @@ def load_config(env_file: Optional[str] = None) -> PipelineConfig:
                 return None
         return None
     
-    ollama_config = OllamaConfig(
-        host=os.getenv("OLLAMA_HOST", ""),
-        port=int(os.getenv("OLLAMA_PORT", "11434")),
-        filename_model=os.getenv("OLLAMA_FILENAME_MODEL", "granite-embedding:30m"),
-        content_model=os.getenv("OLLAMA_CONTENT_MODEL", "bge-m3"),
-        truncate=get_optional_bool("OLLAMA_TRUNCATE"),
-        keep_alive=os.getenv("OLLAMA_KEEP_ALIVE") or None,
-        dimensions=get_optional_int("OLLAMA_DIMENSIONS")
-    )
+    # Embedding Configuration
+    backend_type = os.getenv("EMBEDDING_BACKEND", "ollama").lower()
+    # Universal batch size for all operations
+    batch_size = int(os.getenv("BATCH_SIZE", "100"))
+    
+    if backend_type == "ollama":
+        ollama_config = OllamaConfig(
+            host=os.getenv("OLLAMA_HOST", ""),
+            port=int(os.getenv("OLLAMA_PORT", "11434")),
+            filename_model=os.getenv("OLLAMA_FILENAME_MODEL", "granite-embedding:30m"),
+            content_model=os.getenv("OLLAMA_CONTENT_MODEL", "bge-m3"),
+            truncate=get_optional_bool("OLLAMA_TRUNCATE"),
+            keep_alive=os.getenv("OLLAMA_KEEP_ALIVE") or None,
+            dimensions=get_optional_int("OLLAMA_DIMENSIONS")
+        )
+        embedding_config = EmbeddingConfig(backend="ollama", batch_size=batch_size, ollama=ollama_config, gemini=None)
+    
+    elif backend_type == "gemini":
+        gemini_config = GeminiConfig(
+            api_key=os.getenv("GEMINI_API_KEY", ""),
+            model=os.getenv("GEMINI_MODEL", "gemini-embedding-001"),
+            task_type=os.getenv("GEMINI_TASK_TYPE", "RETRIEVAL_DOCUMENT"),
+            dimensions=int(os.getenv("GEMINI_DIMENSIONS", "768"))
+        )
+        embedding_config = EmbeddingConfig(backend="gemini", batch_size=batch_size, ollama=None, gemini=gemini_config)
+    
+    else:
+        raise ValueError(f"Unknown EMBEDDING_BACKEND: {backend_type}. Must be 'ollama' or 'gemini'")
     
     # Docling Configuration
     docling_config = DoclingConfig(
@@ -200,7 +231,7 @@ def load_config(env_file: Optional[str] = None) -> PipelineConfig:
     return PipelineConfig(
         r2=r2_config,
         qdrant=qdrant_config,
-        ollama=ollama_config,
+        embedding=embedding_config,
         docling=docling_config,
         chunking=chunking_config,
         log=log_config,
@@ -214,5 +245,9 @@ if __name__ == "__main__":
     print("Configuration loaded successfully:")
     print(f"R2 Bucket: {config.r2.bucket_name}")
     print(f"Qdrant Host: {config.qdrant.host}:{config.qdrant.port}")
-    print(f"Ollama Host: {config.ollama.host}:{config.ollama.port}")
+    print(f"Embedding Backend: {config.embedding.backend}")
+    if config.embedding.backend == "ollama" and config.embedding.ollama:
+        print(f"Ollama Host: {config.embedding.ollama.host}:{config.embedding.ollama.port}")
+    elif config.embedding.backend == "gemini" and config.embedding.gemini:
+        print(f"Gemini Model: {config.embedding.gemini.model}")
     print(f"Docling URL: {config.docling.base_url}")

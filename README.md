@@ -61,9 +61,11 @@
 ### 🔄 Complete Pipeline
 - **Document Conversion** - PDF/Word → Markdown via Docling
 - **Semantic Chunking** - LangChain-based intelligent splitting
-- **Dual Embeddings** - Filename (384D) + Content (1024D)
+- **Multi-Backend Embeddings** - Ollama (local) or Google Gemini (cloud)
+- **Dual Embeddings** - Filename (384D/768D) + Content (1024D/768D)
 - **Vector Storage** - Qdrant with HNSW indexing
 - **Metadata Tracking** - Comprehensive payload indexing
+- **Flexible Workflows** - Separate conversion and embedding pipelines
 
 ### 🧠 Phase 3: Advanced Deduplication
 - **xxHash64** - Lightning-fast file hashing
@@ -81,14 +83,44 @@
 
 ### 🔧 Flexible Scripts
 1. **pipeline.py** - Full pipeline (source → Qdrant)
-2. **reprocess_from_markdown.py** - Skip conversion, reprocess markdown
-3. **retry_failed_files.py** - Automatic failure recovery
+2. **convert_to_markdown.py** - **NEW: Pipeline A** (source → markdown only)
+3. **reprocess_from_markdown.py** - **Pipeline B** (markdown → embeddings → Qdrant)
+4. **retry_failed_files.py** - Automatic failure recovery
 
 ### 🌐 API & Integration
 - **FastAPI** - RESTful API with async support
+- **Multi-Backend** - Switch between Ollama and Gemini via `.env`
 - **n8n Integration** - Workflow automation
 - **Docker** - Containerized deployment
 - **Health Checks** - Service monitoring
+
+---
+
+## 🔄 Embedding Backends
+
+The pipeline supports multiple embedding backends - switch via `.env`:
+
+### Ollama (Local - Default)
+- **Models:** granite-embedding:30m (384D), bge-m3 (1024D)
+- **Pros:** Free, local, no API limits, privacy
+- **Cons:** Requires local Ollama server
+- **Setup:** Install Ollama + pull models
+
+### Google Gemini (Cloud)
+- **Model:** gemini-embedding-001 (768D, configurable 256-768)
+- **Pros:** No local setup, native batch API (faster), managed service
+- **Cons:** Requires API key, usage costs
+- **Setup:** Get API key from https://ai.google.dev/
+
+**Switch backends:**
+```bash
+# Use Ollama (default)
+EMBEDDING_BACKEND=ollama
+
+# Use Gemini
+EMBEDDING_BACKEND=gemini
+GEMINI_API_KEY=your-api-key-here
+```
 
 ---
 
@@ -190,11 +222,19 @@ QDRANT_PORT=6333
 QDRANT_USE_HTTPS=true
 QDRANT_API_KEY=your-api-key
 
-# Ollama Embeddings
+# Embedding Backend (ollama or gemini)
+EMBEDDING_BACKEND=ollama
+
+# Ollama Configuration (if using Ollama)
 OLLAMA_HOST=127.0.0.1
 OLLAMA_PORT=11434
 OLLAMA_FILENAME_MODEL=granite-embedding:30m
 OLLAMA_CONTENT_MODEL=bge-m3
+
+# Gemini Configuration (if using Gemini)
+# GEMINI_API_KEY=your-api-key-here
+# GEMINI_MODEL=gemini-embedding-001
+# GEMINI_DIMENSIONS=768
 
 # Docling Conversion
 DOCLING_BASE_URL=http://docling-service:5010
@@ -210,30 +250,35 @@ python scripts/setup_qdrant_collections.py
 
 ### 5. Run Pipeline
 
-**Option A: Direct Python**
+**Full Pipeline: Source → Qdrant**
 ```bash
 python src/pipeline.py
 ```
 
-**Option B: Docker (Recommended)**
+**Pipeline A: Source → Markdown Only (NEW)**
+```bash
+python scripts/convert_to_markdown.py
+```
+
+**Pipeline B: Markdown → Embeddings → Qdrant**
+```bash
+python scripts/reprocess_from_markdown.py
+```
+
+**Retry Failed Files**
+```bash
+python scripts/retry_failed_files.py
+```
+
+**Docker Deployment (Recommended)**
 ```bash
 docker-compose up -d
 docker-compose logs -f
 ```
 
-**Option C: FastAPI Server**
+**FastAPI Server**
 ```bash
 uvicorn api.main:app --host 0.0.0.0 --port 8060
-```
-
-**Option D: Reprocess Markdown Only**
-```bash
-python scripts/reprocess_from_markdown.py
-```
-
-**Option E: Retry Failed Files**
-```bash
-python scripts/retry_failed_files.py
 ```
 
 ---
@@ -403,7 +448,7 @@ python src/pipeline.py
 - Downloads from R2 source directory
 - Converts via Docling
 - Uploads markdown to R2
-- Chunks and embeds
+- Chunks and embeds (Ollama or Gemini)
 - Uploads to Qdrant
 - Comprehensive logging
 
@@ -414,9 +459,32 @@ python src/pipeline.py
 
 ---
 
-### 2. Reprocess Script (`scripts/reprocess_from_markdown.py`)
+### 2. Markdown-Only Conversion (`scripts/convert_to_markdown.py`) - NEW
 
-**Reprocess from existing markdown files (skip conversion)**
+**Pipeline A: Convert source to markdown only (no embedding)**
+
+```bash
+python scripts/convert_to_markdown.py
+```
+
+**Features:**
+- Downloads from R2 source directory
+- Converts via Docling
+- Uploads markdown to R2
+- **STOPS** - no chunking, embedding, or Qdrant
+- Deduplication checks
+
+**Use When:**
+- Pre-process documents for later embedding
+- Separate conversion from embedding (two-stage workflow)
+- Create markdown archive without vector storage
+- Want to convert first, embed later with Pipeline B
+
+---
+
+### 3. Reprocess from Markdown (`scripts/reprocess_from_markdown.py`)
+
+**Pipeline B: Process markdown to embeddings and Qdrant**
 
 ```bash
 python scripts/reprocess_from_markdown.py
@@ -425,19 +493,21 @@ python scripts/reprocess_from_markdown.py
 **Features:**
 - Downloads from R2 markdown directory
 - Skips Docling conversion (faster)
-- Re-chunks and re-embeds
+- Re-chunks and re-embeds (Ollama or Gemini)
 - Uploads to Qdrant
 - Phase 3 deduplication
+- Multi-backend support
 
 **Use When:**
-- Markdown files already exist
-- Want to re-embed with different models
+- Markdown files already exist (from Pipeline A or previous runs)
+- Want to re-embed with different models or backends
 - Need to recreate Qdrant collections
 - Docling service is unavailable
+- Switch between Ollama and Gemini
 
 ---
 
-### 3. Retry Failed Files (`scripts/retry_failed_files.py`)
+### 4. Retry Failed Files (`scripts/retry_failed_files.py`)
 
 **Automatically retry files that failed in previous runs**
 
