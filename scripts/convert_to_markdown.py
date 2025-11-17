@@ -97,102 +97,52 @@ class MarkdownConverter:
         Returns:
             True if successful, False otherwise
         """
+        filename = Path(file_key).name
+        logger.info(f"Processing file: {file_key}")
+        
         try:
-            logger.info(f"\n{'='*60}")
-            logger.info(f"Processing: {file_key}")
-            logger.info(f"{'='*60}")
             
-            # [1] Skip check
+            # Check if file should be skipped
             if self.should_skip_file(file_key):
-                return False
+                return True  # Return True to not count as failure
             
-            # [2] Download file
+            # Step 1: Download file from R2
             logger.info(f"[1/6] Downloading from R2...")
-            file_content = self.r2_client.download_file(file_key)
+            file_content = self.r2_client.download_file_to_memory(file_key)
             if not file_content:
-                logger.error(f"Failed to download {file_key}")
-                return False
+                raise Exception("Failed to download file")
             
-            # [3] Compute xxHash64
-            logger.info(f"[2/6] Computing file hash...")
-            file_hash = self.file_hasher.hash_file_lightweight(file_content)
-            logger.info(f"  File hash: {file_hash}")
+            # Step 2: Generate file hash
+            logger.info(f"[2/6] Generating file hash...")
+            file_hash = self.file_hasher.hash_file(file_content)
             
-            # [4] Check logs for deduplication
-            if not self.force_reprocess:
-                logger.info(f"[3/6] Checking deduplication logs...")
-                
-                # Check if already fully processed (uploaded to Qdrant)
-                if self.log_manager.is_uploaded(file_hash):
-                    logger.info(f"⏭️  Skipping {file_key} - already fully processed")
-                    return False
-                
-                # Check if markdown already exists in conversion log
-                if self.log_manager.is_converted(file_hash):
-                    logger.info(f"⏭️  Skipping {file_key} - markdown already created")
-                    return False
-            else:
-                logger.info(f"[3/6] Skipping dedup checks (FORCE_REPROCESS=true)")
+            # Step 3: Check if already processed
+            logger.info(f"[3/6] Checking if already processed...")
+            if self.log_manager.is_converted(file_hash) and not self.force_reprocess:
+                logger.info(f"File already converted: {filename}")
+                return True
             
-            # [5] Convert to markdown via Docling
+            # Step 4: Convert to markdown
             logger.info(f"[4/6] Converting to markdown...")
-            markdown_content = self.docling_client.convert_from_memory(
-                file_content=file_content,
-                filename=file_key
-            )
-            
-            if not markdown_content:
-                logger.error(f"Failed to convert {file_key}")
-                self.log_manager.add_failed_entry(
-                    filename=file_key,
-                    file_hash=file_hash,
-                    error="Docling conversion failed",
-                    stage="docling"
-                )
+            markdown = self.docling_client.convert_from_memory(file_content, filename)
+            if not markdown:
+                self.log_manager.add_failed_entry(filename, file_hash, "Conversion failed", "docling")
                 return False
             
-            logger.info(f"  Markdown size: {len(markdown_content)} bytes")
+            self.log_manager.add_conversion_entry(filename, file_hash)
             
-            # Log successful conversion
-            self.log_manager.add_conversion_entry(
-                filename=file_key,
-                file_hash=file_hash
-            )
-            
-            # [6] Upload markdown to R2
+            # Step 5: Upload markdown to R2
             logger.info(f"[5/6] Uploading markdown to R2...")
-            markdown_key = self.markdown_storage.upload_markdown(
-                source_key=file_key,
-                markdown_content=markdown_content
-            )
-            
-            if not markdown_key:
-                logger.error(f"Failed to upload markdown for {file_key}")
-                self.log_manager.add_failed_entry(
-                    filename=file_key,
-                    file_hash=file_hash,
-                    error="Markdown upload failed",
-                    stage="r2"
-                )
+            if not self.markdown_storage.upload_markdown(file_key, markdown):
+                self.log_manager.add_failed_entry(filename, file_hash, "Markdown upload failed", "r2")
                 return False
             
-            logger.info(f"  Markdown uploaded: {markdown_key}")
-            
-            logger.info(f"[6/6] ✅ Markdown conversion complete!")
-            logger.info(f"  Source: {file_key}")
-            logger.info(f"  Markdown: {markdown_key}")
-            
+            logger.info(f"✅ Successfully converted: {filename}")
             return True
             
         except Exception as e:
-            logger.error(f"Error processing {file_key}: {e}", exc_info=True)
-            file_hash = file_hash if 'file_hash' in locals() else "unknown"
-            self.log_manager.add_failed_entry(
-                filename=file_key,
-                file_hash=file_hash,
-                error=str(e),
-                stage="pipeline"
-            )
+            logger.error(f"Error processing file: {e}")
+            self.log_manager.add_failed_entry(filename, file_hash if 'file_hash' in locals() else "unknown", str(e), "pipeline")
             return False
     
     def run(self) -> dict:
@@ -229,7 +179,8 @@ class MarkdownConverter:
         failed = 0
         skipped = 0
         
-        for i, file_key in enumerate(files, 1):
+        for i, file_info in enumerate(files, 1):
+            file_key = file_info['key']
             logger.info(f"\n[{i}/{len(files)}] Processing: {file_key}")
             
             result = self.process_file(file_key)
